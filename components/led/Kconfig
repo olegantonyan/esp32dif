@@ -1,0 +1,9 @@
+menu "Board LED"
+
+    config APP_LED_GPIO
+        int "RGB LED GPIO"
+        default 27
+        help
+            Addressable (WS2812) RGB LED data pin. GPIO27 on ESP32-C5-DevKitC-1.
+
+endmenu

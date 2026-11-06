@@ -1,0 +1,21 @@
+# ESP-IDF build output
+build/
+managed_components/
+sdkconfig.old
+
+# EIM installer config (machine-local paths)
+eim_config.toml
+
+# Tooling
+.cache/
+.clangd
+compile_commands.json
+__pycache__/
+.pytest_cache/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

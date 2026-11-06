@@ -1,0 +1,35 @@
+menu "Board OLED"
+
+    config APP_OLED_SDA
+        int "SDA GPIO"
+        default 8
+
+    config APP_OLED_SCL
+        int "SCL GPIO"
+        default 9
+
+    config APP_OLED_ADDR
+        hex "I2C address"
+        default 0x3C
+        range 0x3C 0x3D
+        help
+            SSD1306 address: 0x3C on most modules, 0x3D when the module's address jumper is moved.
+
+    choice APP_OLED_HEIGHT_CHOICE
+        prompt "Display height"
+        default APP_OLED_HEIGHT_64
+        help
+            0.96" modules are 128x64; 0.91" ones are 128x32.
+
+        config APP_OLED_HEIGHT_64
+            bool "64 px"
+        config APP_OLED_HEIGHT_32
+            bool "32 px"
+    endchoice
+
+    config APP_OLED_HEIGHT
+        int
+        default 64 if APP_OLED_HEIGHT_64
+        default 32 if APP_OLED_HEIGHT_32
+
+endmenu
