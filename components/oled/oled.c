@@ -11,6 +11,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "font5x7.h"
+#include "i2c_bus.h"
 #include "oled.h"
 
 #define OLED_TICK_MS 100
@@ -68,19 +69,10 @@ static void oled_task(void *arg)
 
 esp_err_t oled_init(void)
 {
-    i2c_master_bus_config_t bus_cfg = {
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .i2c_port = 0,
-        .sda_io_num = CONFIG_APP_OLED_SDA,
-        .scl_io_num = CONFIG_APP_OLED_SCL,
-        .flags.enable_internal_pullup = true,
-    };
     i2c_master_bus_handle_t bus;
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&bus_cfg, &bus), TAG, "i2c bus");
+    ESP_RETURN_ON_ERROR(i2c_bus_get(&bus), TAG, "i2c bus");
     if (i2c_master_probe(bus, CONFIG_APP_OLED_ADDR, 100) != ESP_OK) {
-        i2c_del_master_bus(bus);
-        ESP_LOGW(TAG, "no display at 0x%02x (SDA GPIO%d, SCL GPIO%d)", CONFIG_APP_OLED_ADDR, CONFIG_APP_OLED_SDA, CONFIG_APP_OLED_SCL);
+        ESP_LOGW(TAG, "no display at 0x%02x (SDA GPIO%d, SCL GPIO%d)", CONFIG_APP_OLED_ADDR, CONFIG_APP_I2C_SDA, CONFIG_APP_I2C_SCL);
         return ESP_ERR_NOT_FOUND;
     }
 

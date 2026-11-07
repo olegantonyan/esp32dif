@@ -6,6 +6,8 @@
 #include "cmd_system.h"
 #include "cmd_led.h"
 #include "cmd_oled.h"
+#include "digi.h"
+#include "cmd_digi.h"
 #include "status_led.h"
 #include "status_oled.h"
 
@@ -23,9 +25,13 @@ void app_main(void)
     } else {
         ESP_LOGE(TAG, "oled failed to start, continuing without it");
     }
+    if (digi_init() != ESP_OK) {
+        ESP_LOGW(TAG, "digi not ready, continuing without it");
+    }
     ESP_ERROR_CHECK(shell_init());
     ESP_ERROR_CHECK(cmd_system_register());
     ESP_ERROR_CHECK(cmd_led_register());
     ESP_ERROR_CHECK(cmd_oled_register());
+    ESP_ERROR_CHECK(cmd_digi_register());
     ESP_ERROR_CHECK(shell_start());
 }

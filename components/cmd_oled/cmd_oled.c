@@ -35,7 +35,7 @@ static int cmd_status(int argc, char **argv)
     oled_state_t st;
     oled_get(&st);
     printf("display  SSD1306 %dx%d at 0x%02x, %s\n", OLED_WIDTH, OLED_HEIGHT, CONFIG_APP_OLED_ADDR, st.ready ? "found" : "not found");
-    printf("pins     SDA GPIO%d, SCL GPIO%d\n", CONFIG_APP_OLED_SDA, CONFIG_APP_OLED_SCL);
+    printf("pins     SDA GPIO%d, SCL GPIO%d\n", CONFIG_APP_I2C_SDA, CONFIG_APP_I2C_SCL);
     if (st.ready) {
         printf("mode     %s\n", st.auto_mode ? "auto (status screen)" : "manual");
         printf("power    %s\n", st.on ? "on" : "off");

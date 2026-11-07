@@ -1364,6 +1364,17 @@ CONFIG_PARLIO_OBJ_CACHE_SAFE=y
 # end of ESP-Driver:Parallel IO Configurations
 
 #
+# ESP-Driver:PCNT Configurations
+#
+# default:
+# CONFIG_PCNT_CTRL_FUNC_IN_IRAM is not set
+# default:
+# CONFIG_PCNT_ISR_IRAM_SAFE is not set
+# default:
+# CONFIG_PCNT_ENABLE_DEBUG_LOG is not set
+# end of ESP-Driver:PCNT Configurations
+
+#
 # ESP-Driver:RMT Configurations
 #
 # default:
@@ -2648,6 +2659,36 @@ CONFIG_VFS_INITIALIZE_DEV_NULL=y
 # end of Virtual file system
 
 #
+# Board Digi+ (WM8804)
+#
+# default:
+CONFIG_APP_DIGI_ADDR=0x3B
+# default:
+CONFIG_APP_DIGI_XTAL_HZ=27000000
+# default:
+CONFIG_APP_DIGI_BCLK=24
+# default:
+CONFIG_APP_DIGI_WS=23
+# default:
+CONFIG_APP_DIGI_DOUT=4
+# default:
+CONFIG_APP_DIGI_SPDIF_MON=5
+# default:
+CONFIG_APP_DIGI_BOOT_TONE_HZ=440
+# default:
+CONFIG_APP_DIGI_BOOT_TONE_LEVEL=10
+# end of Board Digi+ (WM8804)
+
+#
+# Board I2C bus
+#
+# default:
+CONFIG_APP_I2C_SDA=8
+# default:
+CONFIG_APP_I2C_SCL=9
+# end of Board I2C bus
+
+#
 # Board LED
 #
 # default:
@@ -2657,10 +2698,6 @@ CONFIG_APP_LED_GPIO=27
 #
 # Board OLED
 #
-# default:
-CONFIG_APP_OLED_SDA=8
-# default:
-CONFIG_APP_OLED_SCL=9
 # default:
 CONFIG_APP_OLED_ADDR=0x3C
 # default:

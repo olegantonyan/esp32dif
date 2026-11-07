@@ -1,0 +1,43 @@
+menu "Board Digi+ (WM8804)"
+
+    config APP_DIGI_ADDR
+        hex "WM8804 I2C address"
+        default 0x3B
+        range 0x3A 0x3B
+
+    config APP_DIGI_XTAL_HZ
+        int "WM8804 crystal (Hz)"
+        default 27000000
+        range 10000000 27000000
+        help
+            'digi probe' measures it.
+
+    config APP_DIGI_BCLK
+        int "I2S BCLK GPIO (input, driven by the WM8804)"
+        default 24
+
+    config APP_DIGI_WS
+        int "I2S WS / LRCLK GPIO (input, driven by the WM8804)"
+        default 23
+
+    config APP_DIGI_DOUT
+        int "I2S data GPIO (output to the WM8804)"
+        default 4
+
+    config APP_DIGI_SPDIF_MON
+        int "S/PDIF monitor GPIO (input, optional)"
+        default 5
+        help
+            Wire the WM8804 TX0 pin (17) or the optical transmitter's data input here for 'digi spdif'.
+
+    config APP_DIGI_BOOT_TONE_HZ
+        int "Test tone at boot (Hz, 0 = silence)"
+        default 440
+        range 0 20000
+
+    config APP_DIGI_BOOT_TONE_LEVEL
+        int "Test tone level at boot (% of full scale)"
+        default 10
+        range 0 100
+
+endmenu

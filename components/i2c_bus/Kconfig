@@ -1,0 +1,11 @@
+menu "Board I2C bus"
+
+    config APP_I2C_SDA
+        int "SDA GPIO"
+        default 8
+
+    config APP_I2C_SCL
+        int "SCL GPIO"
+        default 9
+
+endmenu
