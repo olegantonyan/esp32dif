@@ -1,0 +1,18 @@
+menu "Board network"
+
+    config APP_NET_HOSTNAME
+        string "Hostname (DHCP and mDNS, <name>.local)"
+        default "spdif"
+
+    config APP_NET_INSTANCE
+        string "mDNS instance name"
+        default "ESP32-C5 S/PDIF"
+
+    config APP_NET_5G_PREFER_DB
+        int "Prefer a 5 GHz AP within this many dB of the best 2.4 GHz one"
+        range 0 60
+        default 20
+        help
+            Applies with band auto (the default) when one SSID is on both bands.
+
+endmenu

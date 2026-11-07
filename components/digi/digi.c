@@ -63,9 +63,7 @@ static esp_err_t i2s_start(void)
 
 static void add_frames_sent(size_t bytes)
 {
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    s_state.frames_sent += bytes / (2 * sizeof(int32_t));
-    xSemaphoreGive(s_lock);
+    __atomic_fetch_add(&s_state.frames_sent, bytes / (2 * sizeof(int32_t)), __ATOMIC_RELAXED);
 }
 
 static void tone_task(void *arg)
@@ -424,6 +422,37 @@ static esp_err_t trim_locked(int32_t ppb, bool rewrite)
     if (err == ESP_OK) {
         s_state.trim_ppb = ppb;
     }
+    return err;
+}
+
+bool digi_trim_changes_msb(int32_t ppb)
+{
+    if (!s_state.ready) {
+        return false;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool changes = wm8804_trim_changes_msb(ppb);
+    xSemaphoreGive(s_lock);
+    return changes;
+}
+
+int32_t digi_trim_keep_msb(int32_t ppb)
+{
+    if (!s_state.ready) {
+        return ppb;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    int32_t kept = wm8804_trim_keep_msb(ppb);
+    xSemaphoreGive(s_lock);
+    return kept;
+}
+
+esp_err_t digi_trim_refresh(void)
+{
+    ESP_RETURN_ON_FALSE(s_state.ready, ESP_ERR_INVALID_STATE, TAG, "not initialized");
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    esp_err_t err = trim_locked(s_state.trim_ppb, true);
+    xSemaphoreGive(s_lock);
     return err;
 }
 

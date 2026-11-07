@@ -13,3 +13,5 @@ esp_err_t wm8804_reg_write(uint8_t reg, uint8_t val);
 bool wm8804_rate_supported(uint32_t rate);
 esp_err_t wm8804_start(uint32_t xtal_hz, uint32_t rate);
 esp_err_t wm8804_trim(int32_t ppb, bool rewrite, uint32_t *k);
+bool wm8804_trim_changes_msb(int32_t ppb);
+int32_t wm8804_trim_keep_msb(int32_t ppb);

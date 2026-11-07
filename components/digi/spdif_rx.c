@@ -15,6 +15,7 @@
 #define CAPTURE_MAX_BLOCKS 4
 #define CAPTURE_MIN_BLOCKS 2
 #define CAPTURE_SYMBOLS 24000
+#define CAPTURE_MIN_SYMBOLS 3000
 #define CAPTURE_MS 20
 #define CAPTURE_MIN_NS 40
 #define CAPTURE_MAX_NS 100000
@@ -248,7 +249,12 @@ esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg)
 {
     *out = (digi_spdif_report_t){ 0 };
     esp_log_level_set("rmt", ESP_LOG_NONE);
-    rmt_symbol_word_t *sym = heap_caps_calloc(CAPTURE_SYMBOLS, sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t capacity = CAPTURE_SYMBOLS;
+    rmt_symbol_word_t *sym = NULL;
+    while (!sym && capacity >= CAPTURE_MIN_SYMBOLS) {
+        sym = heap_caps_calloc(capacity, sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        capacity = sym ? capacity : capacity / 2;
+    }
     int32_t *samples = calloc(DIGI_SPDIF_MAX_FRAMES * 2, sizeof(int32_t));
     if (!sym || !samples) {
         free(sym);
@@ -276,7 +282,7 @@ esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg)
         if (before) {
             before(arg);
         }
-        err = rmt_receive(rx, sym, CAPTURE_SYMBOLS * sizeof(rmt_symbol_word_t), &rcv);
+        err = rmt_receive(rx, sym, capacity * sizeof(rmt_symbol_word_t), &rcv);
         vTaskDelay(pdMS_TO_TICKS(CAPTURE_MS));
         i2c_bus_unlock();
         rmt_disable(rx);
@@ -286,9 +292,9 @@ esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg)
     }
     esp_log_level_set("rmt", ESP_LOG_WARN);
     if (err == ESP_OK) {
-        size_t n = symbol_count(sym, CAPTURE_SYMBOLS);
+        size_t n = symbol_count(sym, capacity);
         out->symbols = n;
-        for (size_t i = 0; i < CAPTURE_SYMBOLS; i++) {
+        for (size_t i = 0; i < capacity; i++) {
             out->nonzero_symbols += sym[i].val != 0;
         }
         for (int i = 0; i < DIGI_SPDIF_RAW_SYMBOLS; i++) {

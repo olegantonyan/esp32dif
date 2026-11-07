@@ -45,6 +45,7 @@
 #define PLL_N_BEST 8
 #define PLL_K_BITS 22
 #define PPB 1000000000LL
+#define PLL_MSB_MARGIN 4
 
 static const char *TAG = "wm8804";
 
@@ -208,13 +209,36 @@ esp_err_t wm8804_start(uint32_t xtal_hz, uint32_t rate)
     return ESP_OK;
 }
 
-esp_err_t wm8804_trim(int32_t ppb, bool rewrite, uint32_t *k)
+static int64_t trim_target(int32_t ppb)
 {
-    ESP_RETURN_ON_FALSE(s_pll.n, ESP_ERR_INVALID_STATE, TAG, "PLL not configured");
     int64_t base = (int64_t)s_pll.n << PLL_K_BITS;
     int64_t ratio = base + s_pll.k;
     int64_t scaled = ratio * ppb;
-    int64_t target = ratio + (scaled + (scaled < 0 ? -PPB / 2 : PPB / 2)) / PPB - base;
+    return ratio + (scaled + (scaled < 0 ? -PPB / 2 : PPB / 2)) / PPB - base;
+}
+
+bool wm8804_trim_changes_msb(int32_t ppb)
+{
+    return s_pll.n && (trim_target(ppb) >> 16) != (s_k >> 16);
+}
+
+int32_t wm8804_trim_keep_msb(int32_t ppb)
+{
+    int64_t target = trim_target(ppb);
+    int64_t lo = (s_k & ~0xFFFFu) + PLL_MSB_MARGIN;
+    int64_t hi = (s_k | 0xFFFFu) - PLL_MSB_MARGIN;
+    if (!s_pll.n || (target >= lo && target <= hi)) {
+        return ppb;
+    }
+    int64_t base = (int64_t)s_pll.n << PLL_K_BITS;
+    int64_t ratio = base + s_pll.k;
+    return (int32_t)((base + (target < lo ? lo : hi) - ratio) * PPB / ratio);
+}
+
+esp_err_t wm8804_trim(int32_t ppb, bool rewrite, uint32_t *k)
+{
+    ESP_RETURN_ON_FALSE(s_pll.n, ESP_ERR_INVALID_STATE, TAG, "PLL not configured");
+    int64_t target = trim_target(ppb);
     ESP_RETURN_ON_FALSE(target >= 0 && target < (1 << PLL_K_BITS), ESP_ERR_INVALID_ARG, TAG, "trim %ld ppb is out of range for PLL N=%u", (long)ppb, s_pll.n);
     static const uint8_t regs[] = { REG_PLL1, REG_PLL2, REG_PLL3 };
     static const uint8_t masks[] = { 0xFF, 0xFF, 0x3F };

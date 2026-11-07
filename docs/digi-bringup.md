@@ -77,6 +77,19 @@ For Wi-Fi streaming: track the sender's clock by trimming the WM8804 PLL fractio
 - **Breadboard I2C corrupts some writes that still ACK.** Rewriting all three K bytes with the same values gave 26–88 sync errors in 40 captures; R3-only steps stayed clean. K registers don't read back, so a corrupted R4/R5 write goes unnoticed. In a control loop: write only changed bytes, and check BCLK after an R4/R5 write.
 - **First BCLK reading was about 8 ppm high:** cold code between the count and the timestamp. A warm-up read fixed it.
 
+### Drift loop on the breadboard (48 kHz RTP stream, 250 ms target)
+
+| Mode | Converged | Steady state | Clock offset found | Trim writes |
+|---|---|---|---|---|
+| PLL trim, first loop (1 s average, Ti 600 s, 1 ppm steps) | 6 min | 250–257 ms, 0 underruns | −11 ppm | ~35/min, wedged I2C after 10 min |
+| PLL trim, final loop | 15 min, no overshoot | 245–251 ms, 1 underrun in 30 min (WirePlumber restart) | (integrator still settling) | 37 in 30 min, 0 failed |
+| sample slip (no I2C) | 8 min | 250–255 ms, 0 underruns | −13 ppm | 0 |
+
+- **Continuous trimming wedged the I2C bus** after about 10 min and 370 writes (the first loop version wrote about every 2 s): SDA latched, all writes failed, the OLED died too. Only a HAT power cycle clears it.
+- **Wi-Fi bursts made the 1 s average level noisy** (±5–10 ms), and with Tp 300 s each ms is 3.3 ppm, so the first loop wrote on noise. The final loop controls the EMA of each second's peak level (packets arrive late, never early), writes at most every 10 s in ≥ 5 ppm steps, and uses Ti 3600 s: with Ti 600 s, each sender-side level step (PipeWire resync on driver switch, pause, some track changes) biased the clock estimate by ~40 ppm and the level overshot.
+- After 3 failed writes the loop falls back to sample slip and retries the PLL every 5 min.
+- `digi probe` on a wedged bus blocks the shell for minutes (20 retries × 50 ms per access) and its reset can stop the WM8804 clocks.
+
 ## PCB checklist
 
 - 2.2 kΩ pull-ups on SDA and SCL (1.8–4.7 kΩ).

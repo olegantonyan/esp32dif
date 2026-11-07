@@ -1,0 +1,33 @@
+menu "Board RTP receiver"
+
+    config APP_RTP_PORT
+        int "UDP port"
+        range 1024 65535
+        default 5004
+
+    config APP_RTP_SAP_PORT
+        int "SAP port: stream format comes from the sender's SAP/SDP announcement"
+        range 1024 65535
+        default 9875
+
+    config APP_RTP_IDLE_MS
+        int "A stream counts as stopped after this many ms without packets"
+        range 100 60000
+        default 2000
+
+    config APP_RTP_LATENCY_MS
+        int "Target buffer level (ms): playback latency, covers Wi-Fi gaps up to this long"
+        range 10 2000
+        default 250
+
+    config APP_RTP_PSRAM_BUFFER_KB
+        int "Playback buffer in PSRAM (KB): 1152 KB holds 1 s of 192 kHz L24 stereo"
+        range 64 4096
+        default 1152
+
+    config APP_RTP_BUFFER_KB
+        int "Playback buffer in internal RAM when there is no PSRAM (KB)"
+        range 16 256
+        default 64
+
+endmenu

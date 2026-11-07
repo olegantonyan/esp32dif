@@ -1,0 +1,57 @@
+#!/bin/sh
+# Usage: tools/spdif-sink [host] [rate] [format]   e.g. tools/spdif-sink spdif.local 48000 S24BE
+set -eu
+
+host=${1:-spdif.local}
+rate=${2:-48000}
+format=${3:-S24BE}
+port=${SPDIF_PORT:-5004}
+sap_port=${SPDIF_SAP_PORT:-9875}
+
+ip=$(getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }')
+if [ -z "$ip" ]; then
+    echo "spdif-sink: $host not found via mDNS; is the ESP on Wi-Fi ('wifi status')?" >&2
+    exit 1
+fi
+
+conf=$(mktemp --suffix=.conf)
+trap 'rm -f "$conf"' EXIT INT TERM
+cat > "$conf" <<EOF
+context.spa-libs = {
+    audio.convert.* = audioconvert/libspa-audioconvert
+    support.*       = support/libspa-support
+}
+context.modules = [
+    { name = libpipewire-module-rt flags = [ ifexists nofail ] }
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-rtp-sap
+        args = {
+            sap.ip = "$ip"
+            sap.port = $sap_port
+        }
+    }
+    { name = libpipewire-module-rtp-sink
+        args = {
+            destination.ip = "$ip"
+            destination.port = $port
+            sess.media = "audio"
+            audio.format = "$format"
+            audio.rate = $rate
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            stream.props = {
+                media.class = "Audio/Sink"
+                node.name = "spdif-rtp"
+                node.group = "pipewire.dummy"
+                node.description = "S/PDIF over Wi-Fi ($host)"
+                sess.sap.announce = true
+            }
+        }
+    }
+]
+EOF
+
+echo "spdif-sink: $host is $ip, sending $format $rate Hz to UDP $port; Ctrl-C stops"
+PIPEWIRE_DEBUG=${PIPEWIRE_DEBUG:-W,mod.rtp-sap:E} pipewire -c "$conf"

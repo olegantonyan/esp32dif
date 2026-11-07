@@ -75,7 +75,7 @@ PiFi Digi+ 1.0, a HiFiBerry Digi+ clone: one WM8804 S/PDIF transmitter, I2S audi
 
 Bring-up findings, I2C noise measurements and a PCB checklist: [docs/digi-bringup.md](docs/digi-bringup.md).
 
-At boot the firmware looks for the WM8804 at 0x3B for 0.5 s, checks its id (0x8805), resets it and starts it at 44.1 kHz: WM8804 PLL from the crystal, WM8804 as I2S clock master (BCLK 64 fs), ESP32 I2S0 as slave sending 32-bit slots (the WM8804 takes 24 bits), S/PDIF TX fed from the audio interface. Not found at boot: logged as a warning, `digi probe` retries. If the WM8804 doesn't answer on I2C but still clocks from an earlier setup (the ESP32 was reset, the WM8804 kept power), I2S starts anyway at the measured LRCLK rate, so audio plays. A 440 Hz tone at 10% plays from boot: menuconfig → Board Digi+ → Test tone at boot (0 = silence).
+At boot the firmware looks for the WM8804 at 0x3B for 0.5 s, checks its id (0x8805), resets it and starts it at 44.1 kHz: WM8804 PLL from the crystal, WM8804 as I2S clock master (BCLK 64 fs), ESP32 I2S0 as slave sending 32-bit slots (the WM8804 takes 24 bits), S/PDIF TX fed from the audio interface. Not found at boot: logged as a warning, `digi probe` retries. If the WM8804 doesn't answer on I2C but still clocks from an earlier setup (the ESP32 was reset, the WM8804 kept power), I2S starts anyway at the measured LRCLK rate, so audio plays. Silent at boot; menuconfig → Board Digi+ → Test tone at boot sets a tone (Hz, 0 = off). `digi tone` works anytime.
 
 `digi probe` checks the connection step by step:
 
@@ -102,6 +102,29 @@ Swapped WS and DOUT wires: the ESP32 DOUT output fights the WM8804 LRCLK output.
 
 At boot the shared I2C bus is recovered first: if SDA is held low, SCL is clocked up to 9 times and a STOP is sent.
 
+## Wi-Fi
+
+`wifi connect <ssid> [password]` saves the network to NVS once it gets an IP; the board joins it on every boot. Reconnects back off after 3 quick retries: 5, 10, 20, 40, then every 60 s. Band `auto` (default) prefers a 5 GHz AP within 20 dB of the best 2.4 GHz one (menuconfig → Board network); `-b 5` or `-b 2.4` forces a band. Power save is off for low latency. The board takes its IP from DHCP and answers as `spdif.local` over mDNS.
+
+## Wi-Fi audio (RTP)
+
+The PC sends uncompressed PCM over RTP; the board plays it on the Digi+.
+
+```sh
+tools/spdif-sink                       # spdif.local, 48000 Hz, S24BE
+tools/spdif-sink spdif.local 44100 S16BE
+```
+
+The script resolves `spdif.local` and runs a PipeWire client with `module-rtp-sink` (unicast to UDP 5004) and `module-rtp-sap` (announces the stream format to the board on UDP 9875). It adds an output device "S/PDIF over Wi-Fi"; pick it in the sound settings or `pw-play --target=spdif-rtp file.wav`. The node must be `media.class = "Audio/Sink"`: as a plain stream, WirePlumber links the microphone into it.
+
+- PC firewall: allow mDNS (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `--reload`). Without it `spdif.local` doesn't resolve; pass the IP instead.
+- The board plays only streams with a matching SAP announcement (L16 or L24 stereo), and switches the WM8804 to the announced rate.
+- Buffer: target 250 ms (playback latency), in PSRAM: 1152 KB, 4 s at 48 kHz L24. Without PSRAM 64 KB of internal RAM. menuconfig → Board RTP receiver.
+- Timeline from RTP timestamps: a timestamp gap (lost packets, sender skip) becomes silence, so the level holds; a jump past the target (PipeWire re-anchoring its clock) rebases without silence. After an underrun, audio that arrives late is dropped, so the level recovers at once instead of rebuffering.
+- Drift: a PI loop holds the buffer level (EMA of each second's peak, which Wi-Fi bursts can't push up) at target. It trims the WM8804 PLL (bit-perfect), at most once per 10 s in ≥ 5 ppm steps, clamps changes of K bits 21-16 to one per minute (those glitch, see [docs/digi-bringup.md](docs/digi-bringup.md#pll-trim-digi-trim-digi-trimtest)), and rewrites all K bytes every minute. Without I2C (3 failed writes, or audio started without I2C) it repeats or drops single frames instead, and retries the PLL every 5 min.
+- `rtp status`: source, SAP session, format, loss, jitter, longest gap, timestamp rebases, buffer level and target, underruns, late audio dropped, PLL trim, sender clock offset, sample slip.
+- PC: rtp-sink stamps packets with its driver's clock position. When a client links the sink with an ALSA device (the Plasma applet's level meters do), PipeWire moves the sink to that device's driver: the RTP timestamps jump, rtp-sink resyncs and drops audio (an audible stall), and waking a suspended device stalls the graph for up to 230 ms more. `spdif-sink` sets `node.group = "pipewire.dummy"`, which keeps the sink on the Dummy-Driver. The Plasma applet lists the sink only with "Show virtual devices" on.
+
 ## Hardware
 
 | Function | GPIO | Header |
@@ -124,14 +147,15 @@ Off by default. `led color|blink|breathe|rainbow|off` switch to manual mode; `le
 Shows a status screen by default, refreshed every second:
 
 ```
-44.1kHz 24-bit
-tone 440Hz 10%
+48kHz 24-bit
+rtp 102ms buf
+192.168.0.21
 up 0d 01:02:03
 led off
 heap 312 KB free
 ```
 
-The first two rows show the Digi+ format and source: `no tone`, `noI2C` when audio runs without I2C, `S/PDIF off` / `no WM8804` without the chip. The heap row is dropped on 128x32.
+Rows: Digi+ format; source (`tone …`, `rtp <ms> buf`, `rtp buffering`, `idle`; `noI2C` when audio runs without I2C; `S/PDIF off` / `no WM8804` without the chip); IP address or Wi-Fi state; uptime. LED and heap rows only on 128x64.
 
 Text: 5x7 font, 21 columns × 8 rows (4 on 128x32). `oled print|clear` switch to manual mode; `oled auto` returns to the status screen. Settings are RAM-only.
 
@@ -154,6 +178,10 @@ Built on ESP-IDF `esp_console`: line editing, history, Tab completion, `help [cm
 | `led off` / `led auto` | turn off / back to the default (off) |
 | `led brightness <0-100>` | global brightness, default 20 |
 | `led presets` | list color names and effects |
+| `wifi scan` | nearby networks: ssid, bssid, channel, band, rssi, auth |
+| `wifi connect [ssid] [password] [-b 2.4\|5\|auto] [-n] [-t s]` | join; saved once it gets an IP; no ssid = saved network |
+| `wifi status` / `saved [-p]` / `forget` / `disconnect` | state, signal, IP / saved network / erase it / leave |
+| `rtp status` / `rtp reset` | RTP receiver stats / clear them and rebuffer |
 | `oled status` | display found or not, pins, address, mode, power, contrast |
 | `oled print <row> <text>` | write text to a row (0-based), longer text is cut at 21 chars |
 | `oled clear` | blank the screen |
@@ -172,7 +200,7 @@ Built on ESP-IDF `esp_console`: line editing, history, Tab completion, `help [cm
 ## Layout
 
 ```
-main/main.c              led_init → oled_init → digi_init → shell_init → register command groups → shell_start
+main/main.c              led_init → oled_init → digi_init → net_init → rtp_init → shell_init → register command groups → shell_start
 main/status_led.c        default LED pattern (auto mode)
 main/status_oled.c       status screen (auto mode)
 components/led/          RGB LED driver (espressif/led_strip over RMT), effects, color presets
@@ -182,6 +210,11 @@ components/cmd_oled/     oled
 components/i2c_bus/      shared I2C master bus (OLED, WM8804), bus recovery at start
 components/digi/         WM8804 over I2C (PLL, clock master, S/PDIF TX), I2S slave, test tone, PCNT clock probe
 components/cmd_digi/     digi
+components/net/          Wi-Fi client: NVS-saved network, reconnect backoff, 5 GHz preference, DHCP hostname, mDNS
+components/cmd_wifi/     wifi
+components/rtp/          RTP receiver, SAP/SDP parser, playback ring buffer feeding the Digi+
+components/cmd_rtp/      rtp
+tools/spdif-sink         PC side: PipeWire RTP sink + SAP announcement to the board
 components/shell/        REPL setup + helpers: shell_args_ok, shell_subcmd_run, shell_getc
 components/cmd_system/   sysinfo, version, uptime, reboot, free, ps
 docs/digi-bringup.md     Digi+ breadboard bring-up notes
