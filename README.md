@@ -90,6 +90,8 @@ At boot the firmware looks for the WM8804 at 0x3B for 0.5 s, checks its id (0x88
 
 `digi spdif` checks the S/PDIF output itself: wire WM8804 pin 17 (TX0) or the optical transmitter's data input to J3 pin 9 (GPIO5, menuconfig → Board Digi+ → S/PDIF monitor). It counts rising edges with silence (32 × fs expected) and with a 440 Hz tone at 10%, then captures about 12 ms of the stream with RMT at 80 MHz and decodes it on the chip: biphase-mark cells, B/M/W preambles, parity, validity, the first 5 channel status bytes and the left/right samples. It reports the sample rate from the bit timing, the channel status (consumer, PCM, rate code), and the decoded tone's frequency and peak level.
 
+`digi trim <ppm>` trims the WM8804 PLL fraction (±1000 ppm) and measures BCLK over 1 s. `digi trimtest <ppm>` checks trim accuracy, then compares S/PDIF captures right after trim steps against no-write and same-value-rewrite controls; `-w <s>` then toggles ±ppm for listening. Results: [docs/digi-bringup.md](docs/digi-bringup.md#pll-trim-digi-trim-digi-trimtest).
+
 `digi decode` decodes any S/PDIF source on GPIO5 (for example another player wired to the same node) without checking it against the WM8804 setup, so two sources can be compared field by field. A source must share GND with the ESP32.
 
 The data line (GPIO4 → HAT pin 40) has no direct readback: play `digi tone 440` and listen on the S/PDIF output. With no ACK the probe prints the idle SDA/SCL levels; a line held LOW means a device on the bus is clamping it.
@@ -122,11 +124,14 @@ Off by default. `led color|blink|breathe|rainbow|off` switch to manual mode; `le
 Shows a status screen by default, refreshed every second:
 
 ```
-ESP32-C5
+44.1kHz 24-bit
+tone 440Hz 10%
 up 0d 01:02:03
 led off
 heap 312 KB free
 ```
+
+The first two rows show the Digi+ format and source: `no tone`, `noI2C` when audio runs without I2C, `S/PDIF off` / `no WM8804` without the chip. The heap row is dropped on 128x32.
 
 Text: 5x7 font, 21 columns × 8 rows (4 on 128x32). `oled print|clear` switch to manual mode; `oled auto` returns to the status screen. Settings are RAM-only.
 

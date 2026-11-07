@@ -23,6 +23,8 @@ typedef struct {
     uint32_t tone_hz;
     uint8_t tone_level;
     uint32_t frames_sent;
+    int32_t trim_ppb;
+    uint32_t pll_k;
 } digi_state_t;
 
 typedef struct {
@@ -79,7 +81,10 @@ esp_err_t digi_reg_write(uint8_t reg, uint8_t val);
 esp_err_t digi_set_rate(uint32_t rate);
 esp_err_t digi_spdif_edges(uint32_t glitch_ns, uint32_t *per_second);
 uint32_t digi_spdif_high_permille(gpio_pull_mode_t pull);
-esp_err_t digi_spdif_capture(digi_spdif_report_t *out);
+esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg), void *arg);
+esp_err_t digi_trim(int32_t ppb);
+esp_err_t digi_trim_capture(int32_t ppb, bool rewrite, digi_spdif_report_t *out, esp_err_t *write_err);
+esp_err_t digi_bclk_offset(uint32_t ms, int32_t *ppb);
 esp_err_t digi_tone(uint32_t hz, uint8_t level);
 esp_err_t digi_write(const int32_t *frames, size_t count, uint32_t timeout_ms);
 void digi_get(digi_state_t *out);

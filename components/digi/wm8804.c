@@ -43,6 +43,8 @@
 #define PLL_N_MIN 5
 #define PLL_N_MAX 13
 #define PLL_N_BEST 8
+#define PLL_K_BITS 22
+#define PPB 1000000000LL
 
 static const char *TAG = "wm8804";
 
@@ -62,6 +64,8 @@ typedef struct {
 } pll_t;
 
 static i2c_master_dev_handle_t s_dev;
+static pll_t s_pll;
+static uint32_t s_k;
 
 esp_err_t wm8804_reg_write(uint8_t reg, uint8_t val)
 {
@@ -182,6 +186,7 @@ esp_err_t wm8804_start(uint32_t xtal_hz, uint32_t rate)
     pll_t pll;
     ESP_RETURN_ON_ERROR(pll_calc(xtal_hz, rate, &pll), TAG, "pll");
 
+    s_pll = (pll_t){ 0 };
     ESP_RETURN_ON_ERROR(wm8804_reset(), TAG, "reset");
     const uint8_t seq[][2] = {
         { REG_PLL1, pll.k & 0xFF },
@@ -197,6 +202,34 @@ esp_err_t wm8804_start(uint32_t xtal_hz, uint32_t rate)
         { REG_AIFRX, AIFRX_SYNC_OFF | AIFRX_MASTER | AIFRX_WL_24 | AIFRX_FMT_I2S },
     };
     ESP_RETURN_ON_ERROR(write_seq(seq, sizeof(seq) / sizeof(seq[0])), TAG, "configure");
+    s_pll = pll;
+    s_k = pll.k;
     ESP_LOGI(TAG, "%lu Hz: PLL N=%u K=0x%06lx prescale=%d freqmode=%u mclkdiv=%d", (unsigned long)rate, pll.n, (unsigned long)pll.k, pll.prescale, pll.freqmode, pll.mclkdiv);
+    return ESP_OK;
+}
+
+esp_err_t wm8804_trim(int32_t ppb, bool rewrite, uint32_t *k)
+{
+    ESP_RETURN_ON_FALSE(s_pll.n, ESP_ERR_INVALID_STATE, TAG, "PLL not configured");
+    int64_t base = (int64_t)s_pll.n << PLL_K_BITS;
+    int64_t ratio = base + s_pll.k;
+    int64_t scaled = ratio * ppb;
+    int64_t target = ratio + (scaled + (scaled < 0 ? -PPB / 2 : PPB / 2)) / PPB - base;
+    ESP_RETURN_ON_FALSE(target >= 0 && target < (1 << PLL_K_BITS), ESP_ERR_INVALID_ARG, TAG, "trim %ld ppb is out of range for PLL N=%u", (long)ppb, s_pll.n);
+    static const uint8_t regs[] = { REG_PLL1, REG_PLL2, REG_PLL3 };
+    static const uint8_t masks[] = { 0xFF, 0xFF, 0x3F };
+    esp_err_t err = ESP_OK;
+    for (int i = 0; i < 3 && err == ESP_OK; i++) {
+        int shift = 8 * i;
+        uint8_t byte = (target >> shift) & masks[i];
+        if (rewrite || byte != ((s_k >> shift) & masks[i])) {
+            err = reg_write(regs[i], byte);
+            if (err == ESP_OK) {
+                s_k = (s_k & ~((uint32_t)masks[i] << shift)) | (uint32_t)byte << shift;
+            }
+        }
+    }
+    *k = s_k;
+    ESP_RETURN_ON_ERROR(err, TAG, "write PLL K");
     return ESP_OK;
 }

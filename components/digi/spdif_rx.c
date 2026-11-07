@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
+#include "i2c_bus.h"
 #include "digi.h"
 
 #define CAPTURE_RESOLUTION_HZ (80 * 1000 * 1000)
@@ -243,7 +244,7 @@ static uint32_t estimate_tone(const digi_spdif_report_t *out, const int32_t *sam
     return (uint32_t)((crossings - 1) / 2.0f / ((last - first) / out->rate_hz) * 10 + 0.5f);
 }
 
-esp_err_t digi_spdif_capture(digi_spdif_report_t *out)
+esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg), void *arg)
 {
     *out = (digi_spdif_report_t){ 0 };
     esp_log_level_set("rmt", ESP_LOG_NONE);
@@ -271,8 +272,13 @@ esp_err_t digi_spdif_capture(digi_spdif_report_t *out)
     }
     if (err == ESP_OK) {
         rmt_receive_config_t rcv = { .signal_range_min_ns = CAPTURE_MIN_NS, .signal_range_max_ns = CAPTURE_MAX_NS };
+        i2c_bus_lock();
+        if (before) {
+            before(arg);
+        }
         err = rmt_receive(rx, sym, CAPTURE_SYMBOLS * sizeof(rmt_symbol_word_t), &rcv);
         vTaskDelay(pdMS_TO_TICKS(CAPTURE_MS));
+        i2c_bus_unlock();
         rmt_disable(rx);
     }
     if (rx) {

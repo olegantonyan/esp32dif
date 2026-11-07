@@ -59,7 +59,9 @@ static void oled_task(void *arg)
         }
         if (s_dirty) {
             render();
+            i2c_bus_lock();
             esp_lcd_panel_draw_bitmap(s_panel, 0, 0, OLED_WIDTH, OLED_HEIGHT, s_fb);
+            i2c_bus_unlock();
             s_dirty = false;
         }
         xSemaphoreGive(s_lock);

@@ -154,6 +154,17 @@ static void restore_i2s_pins_locked(void)
     i2s_channel_enable(s_tx);
 }
 
+static esp_err_t start_locked(uint32_t rate)
+{
+    s_state.trim_ppb = 0;
+    s_state.pll_k = 0;
+    esp_err_t err = wm8804_start(CONFIG_APP_DIGI_XTAL_HZ, rate);
+    if (err == ESP_OK) {
+        err = wm8804_trim(0, false, &s_state.pll_k);
+    }
+    return err;
+}
+
 static esp_err_t init_locked(void)
 {
     i2c_master_bus_handle_t bus;
@@ -173,7 +184,7 @@ static esp_err_t init_locked(void)
     uint16_t id;
     ESP_RETURN_ON_ERROR(wm8804_read_id(&id, &s_state.rev), TAG, "id");
     ESP_RETURN_ON_FALSE(id == DIGI_CHIP_ID, ESP_ERR_INVALID_RESPONSE, TAG, "device at 0x%02x has id 0x%04x, expected 0x%04x", CONFIG_APP_DIGI_ADDR, id, DIGI_CHIP_ID);
-    ESP_RETURN_ON_ERROR(wm8804_start(CONFIG_APP_DIGI_XTAL_HZ, s_state.rate), TAG, "start");
+    ESP_RETURN_ON_ERROR(start_locked(s_state.rate), TAG, "start");
     ESP_RETURN_ON_ERROR(start_audio(), TAG, "audio");
     s_state.ready = true;
     s_state.blind = false;
@@ -330,7 +341,7 @@ esp_err_t digi_probe(digi_probe_t *out)
         err = wm8804_read_id(&out->id, &out->rev);
     }
     if (s_state.ready) {
-        esp_err_t start_err = wm8804_start(CONFIG_APP_DIGI_XTAL_HZ, s_state.rate);
+        esp_err_t start_err = start_locked(s_state.rate);
         err = err == ESP_OK ? start_err : err;
     }
     if (err == ESP_OK && s_state.ready) {
@@ -375,7 +386,7 @@ esp_err_t digi_set_rate(uint32_t rate)
     ESP_RETURN_ON_FALSE(s_state.ready, ESP_ERR_INVALID_STATE, TAG, "not initialized");
     xSemaphoreTake(s_lock, portMAX_DELAY);
     i2s_channel_disable(s_tx);
-    esp_err_t err = wm8804_start(CONFIG_APP_DIGI_XTAL_HZ, rate);
+    esp_err_t err = start_locked(rate);
     if (err == ESP_OK) {
         s_state.rate = rate;
     }
@@ -405,6 +416,77 @@ uint32_t digi_spdif_high_permille(gpio_pull_mode_t pull)
     }
     gpio_set_pull_mode(CONFIG_APP_DIGI_SPDIF_MON, GPIO_FLOATING);
     return high / 100;
+}
+
+static esp_err_t trim_locked(int32_t ppb, bool rewrite)
+{
+    esp_err_t err = wm8804_trim(ppb, rewrite, &s_state.pll_k);
+    if (err == ESP_OK) {
+        s_state.trim_ppb = ppb;
+    }
+    return err;
+}
+
+esp_err_t digi_trim(int32_t ppb)
+{
+    ESP_RETURN_ON_FALSE(s_state.ready, ESP_ERR_INVALID_STATE, TAG, "not initialized");
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    esp_err_t err = trim_locked(ppb, false);
+    xSemaphoreGive(s_lock);
+    return err;
+}
+
+typedef struct {
+    int32_t ppb;
+    bool rewrite;
+    esp_err_t err;
+} trim_write_t;
+
+static void trim_before_capture(void *arg)
+{
+    trim_write_t *w = arg;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    w->err = trim_locked(w->ppb, w->rewrite);
+    xSemaphoreGive(s_lock);
+}
+
+esp_err_t digi_trim_capture(int32_t ppb, bool rewrite, digi_spdif_report_t *out, esp_err_t *write_err)
+{
+    ESP_RETURN_ON_FALSE(s_state.ready, ESP_ERR_INVALID_STATE, TAG, "not initialized");
+    trim_write_t w = { .ppb = ppb, .rewrite = rewrite, .err = ESP_ERR_INVALID_STATE };
+    esp_err_t err = digi_spdif_capture(out, trim_before_capture, &w);
+    *write_err = w.err;
+    return err;
+}
+
+static void count_at(pcnt_unit_handle_t unit, int *count, int64_t *us)
+{
+    vTaskSuspendAll();
+    pcnt_unit_get_count(unit, count);
+    *us = esp_timer_get_time();
+    xTaskResumeAll();
+}
+
+esp_err_t digi_bclk_offset(uint32_t ms, int32_t *ppb)
+{
+    ESP_RETURN_ON_FALSE(s_state.ready || s_state.blind, ESP_ERR_INVALID_STATE, TAG, "not initialized");
+    pcnt_unit_handle_t unit = NULL;
+    pcnt_channel_handle_t chan = NULL;
+    esp_err_t err = counter_new(CONFIG_APP_DIGI_BCLK, 0, &unit, &chan);
+    int c0 = 0, c1 = 0;
+    int64_t t0 = 0, t1 = 0;
+    if (err == ESP_OK) {
+        count_at(unit, &c0, &t0);
+        count_at(unit, &c0, &t0);
+        vTaskDelay(pdMS_TO_TICKS(ms));
+        count_at(unit, &c1, &t1);
+    }
+    counter_free(unit, chan);
+    ESP_RETURN_ON_ERROR(err, TAG, "pcnt");
+    double expected = (double)s_state.rate * DIGI_BCLK_PER_FRAME * (t1 - t0) / 1e6;
+    ESP_RETURN_ON_FALSE(expected > 0 && c1 > c0, ESP_ERR_INVALID_RESPONSE, TAG, "no BCLK");
+    *ppb = (int32_t)llround((c1 - c0 - expected) * 1e9 / expected);
+    return ESP_OK;
 }
 
 esp_err_t digi_tone(uint32_t hz, uint8_t level)

@@ -60,7 +60,22 @@ Decoded with `digi decode` on GPIO5.
 - **Capture:** RMT RX at 80 MHz. Only 2 memory blocks are free on the C5 (the LED uses RMT TX); ping-pong into a 24000-symbol buffer gives about 12 ms.
 - **Cell-width estimate:** the bit-cell unit interval comes from the run-length histogram, skipping the shortest 0.5% as glitches. Taking the shortest pulse broke on one glitch. Taking the first bin with ≥2% of the runs broke on near-silent streams, which have few 1-cell runs.
 - **Expected edge counts:** silence gives exactly 32 × fs rising edges/s; audio adds more. Rates around 200k/s with pulses under 25 ns mean a floating or unpowered line, not S/PDIF.
-- **Corrupted captures:** the first capture is sometimes corrupted (lost symbols); repeat it.
+- **Corrupted captures (fixed):** any I2C transfer during a capture, including OLED redraws, garbles the rest of it. Captures hold `i2c_bus_lock()`, and the OLED takes it per frame. Raising the RMT interrupt priority is not possible: the LED's RMT TX channel shares the group interrupt at the default priority.
+
+## PLL trim (`digi trim`, `digi trimtest`)
+
+For Wi-Fi streaming: track the sender's clock by trimming the WM8804 PLL fraction K instead of resampling, so the output stays bit-perfect. 1 K LSB is about 0.04 ppm at 44.1 kHz.
+
+| Test | 44.1 kHz | 48 kHz |
+|---|---|---|
+| Accuracy, ±100 ppm and ±1 ppm (BCLK over 1 s) | within 0.7 ppm | within 0.7 ppm |
+| Static trim ±100 ppm, `digi spdif` | 0 errors | 0 errors |
+| ±1 ppm steps, 40 captures (R3 only) | 2 sync errors, controls 1 | 0, controls 1 |
+| ±100 ppm steps, 20 captures | 0–2 sync errors, controls 0–1 | 1–12, controls 0–1 |
+
+- **R5 crossings glitch.** At 48 kHz the nominal K (0x1208a5) is about 75 ppm above an R5 boundary. Byte-wise writes then pass through a K about 2000 ppm off. No write order avoids it. A control loop needs hysteresis so it crosses an R5 boundary at most once.
+- **Breadboard I2C corrupts some writes that still ACK.** Rewriting all three K bytes with the same values gave 26–88 sync errors in 40 captures; R3-only steps stayed clean. K registers don't read back, so a corrupted R4/R5 write goes unnoticed. In a control loop: write only changed bytes, and check BCLK after an R4/R5 write.
+- **First BCLK reading was about 8 ppm high:** cold code between the count and the timestamp. A warm-up read fixed it.
 
 ## PCB checklist
 
@@ -69,7 +84,7 @@ Decoded with `digi decode` on GPIO5.
 - 22–33 Ω series resistors at the drivers of BCLK and LRCLK (WM8804 side) and DOUT (ESP32 side), to slow the edges and cut crosstalk.
 - A way to reset the WM8804 without power cycling everything. Its I2C can latch SDA low after an ESP32 reset. Options: a GPIO-controlled load switch on the HAT 3V3 (and 5V), or a GPIO on the WM8804 reset line if the board exposes one (on this HAT it's an RC network).
 - Optionally a separate I2C bus for the WM8804, so a latched SDA doesn't take the OLED with it.
-- Keep a test point or jumper from WM8804 TX0 (pin 17) to GPIO5 for `digi spdif` / `digi decode`.
+- WM8804 TX0 (pin 17) to GPIO5 through a normally closed solder jumper and a 1 kΩ series resistor at the ESP32, for `digi spdif` / `digi decode` / `digi trimtest`. The resistor protects TX0 if GPIO5 is ever driven as an output.
 
 ## Next steps on the PCB
 

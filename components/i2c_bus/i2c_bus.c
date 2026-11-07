@@ -2,6 +2,8 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "sdkconfig.h"
 #include "i2c_bus.h"
 
@@ -11,6 +13,7 @@
 static const char *TAG = "i2c_bus";
 
 static i2c_master_bus_handle_t s_bus;
+static SemaphoreHandle_t s_quiet;
 
 static void recover(void)
 {
@@ -46,6 +49,8 @@ static void recover(void)
 esp_err_t i2c_bus_get(i2c_master_bus_handle_t *out)
 {
     if (!s_bus) {
+        s_quiet = xSemaphoreCreateMutex();
+        ESP_RETURN_ON_FALSE(s_quiet, ESP_ERR_NO_MEM, TAG, "mutex");
         esp_log_level_set("i2c.common", ESP_LOG_ERROR);
         recover();
         i2c_master_bus_config_t cfg = {
@@ -61,4 +66,18 @@ esp_err_t i2c_bus_get(i2c_master_bus_handle_t *out)
     }
     *out = s_bus;
     return ESP_OK;
+}
+
+void i2c_bus_lock(void)
+{
+    if (s_quiet) {
+        xSemaphoreTake(s_quiet, portMAX_DELAY);
+    }
+}
+
+void i2c_bus_unlock(void)
+{
+    if (s_quiet) {
+        xSemaphoreGive(s_quiet);
+    }
 }

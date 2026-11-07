@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,13 @@
 #define SPDIF_TONE_SETTLE_MS 50
 #define SPDIF_TONE_HZ 440
 #define SPDIF_TONE_LEVEL 10
+#define TRIM_MAX_PPM 1000
+#define TRIM_MEASURE_MS 1000
+#define TRIM_SETTLE_MS 50
+#define TRIM_CAPTURES 10
+#define TRIM_WOBBLE_MS 100
+#define TRIM_TOLERANCE_PPB 5000
+#define TRIM_TOLERANCE_SHARE 100
 
 static const char *TAG = "cmd_digi";
 
@@ -35,6 +43,18 @@ static struct {
     struct arg_int *level;
     struct arg_end *end;
 } s_tone_args;
+
+static struct {
+    struct arg_dbl *ppm;
+    struct arg_end *end;
+} s_trim_args;
+
+static struct {
+    struct arg_dbl *ppm;
+    struct arg_int *captures;
+    struct arg_int *wobble;
+    struct arg_end *end;
+} s_trimtest_args;
 
 static bool ready(void)
 {
@@ -56,6 +76,13 @@ static bool audio_ready(void)
     return st.ready || st.blind;
 }
 
+static const char *ppb_str(char buf[16], int32_t ppb)
+{
+    unsigned long mag = labs((long)ppb);
+    snprintf(buf, 16, "%c%lu.%03lu", ppb < 0 ? '-' : '+', mag / 1000, mag % 1000);
+    return buf;
+}
+
 static int cmd_status(int argc, char **argv)
 {
     digi_state_t st;
@@ -71,6 +98,10 @@ static int cmd_status(int argc, char **argv)
     printf("format   %lu Hz, I2S 24-bit, WM8804 is clock master\n", (unsigned long)st.rate);
     printf("pins     BCLK GPIO%d, WS GPIO%d, DOUT GPIO%d, SDA GPIO%d, SCL GPIO%d\n", CONFIG_APP_DIGI_BCLK, CONFIG_APP_DIGI_WS, CONFIG_APP_DIGI_DOUT, CONFIG_APP_I2C_SDA, CONFIG_APP_I2C_SCL);
     printf("sent     %lu frames\n", (unsigned long)st.frames_sent);
+    if (st.ready) {
+        char trim[16];
+        printf("trim     %s ppm, PLL K 0x%06lx\n", ppb_str(trim, st.trim_ppb), (unsigned long)st.pll_k);
+    }
     if (st.tone_hz) {
         printf("tone     %lu Hz at %u%%\n", (unsigned long)st.tone_hz, st.tone_level);
     } else {
@@ -240,7 +271,7 @@ static const char *cs_rate_name(uint8_t code)
 static bool print_capture(const digi_state_t *st)
 {
     digi_spdif_report_t r;
-    if (digi_spdif_capture(&r) != ESP_OK) {
+    if (digi_spdif_capture(&r, NULL, NULL) != ESP_OK) {
         printf("decode   capture failed  FAIL\n");
         return false;
     }
@@ -329,7 +360,7 @@ static int cmd_decode(int argc, char **argv)
     }
     printf("\n");
     digi_spdif_report_t r;
-    if (digi_spdif_capture(&r) != ESP_OK) {
+    if (digi_spdif_capture(&r, NULL, NULL) != ESP_OK) {
         printf("decode   capture failed\n");
         return 1;
     }
@@ -364,6 +395,215 @@ static int cmd_decode(int argc, char **argv)
     return 0;
 }
 
+static bool ppm_arg(double ppm, int32_t *ppb)
+{
+    if (ppm < -TRIM_MAX_PPM || ppm > TRIM_MAX_PPM) {
+        fprintf(stderr, "digi: trim must be within +-%d ppm\n", TRIM_MAX_PPM);
+        return false;
+    }
+    *ppb = (int32_t)lround(ppm * 1000);
+    return true;
+}
+
+static bool measure_trim(int32_t ppb, int32_t *measured, uint32_t *k)
+{
+    if (digi_trim(ppb) != ESP_OK) {
+        return false;
+    }
+    vTaskDelay(pdMS_TO_TICKS(TRIM_SETTLE_MS));
+    digi_state_t st;
+    digi_get(&st);
+    *k = st.pll_k;
+    return digi_bclk_offset(TRIM_MEASURE_MS, measured) == ESP_OK;
+}
+
+static bool negative_number(int argc, char **argv, double *val)
+{
+    char *end;
+    if (argc != 2 || argv[1][0] != '-') {
+        return false;
+    }
+    *val = strtod(argv[1], &end);
+    return end != argv[1] && !*end;
+}
+
+static int cmd_trim(int argc, char **argv)
+{
+    double ppm = 0;
+    bool negative = negative_number(argc, argv, &ppm);
+    if ((!negative && !shell_args_ok(argc, argv, &s_trim_args)) || !ready()) {
+        return 1;
+    }
+    if (!negative && s_trim_args.ppm->count) {
+        ppm = s_trim_args.ppm->dval[0];
+    }
+    digi_state_t st;
+    digi_get(&st);
+    int32_t ppb = st.trim_ppb;
+    if ((negative || s_trim_args.ppm->count) && !ppm_arg(ppm, &ppb)) {
+        return 1;
+    }
+    int32_t measured;
+    uint32_t k;
+    if (!measure_trim(ppb, &measured, &k)) {
+        return 1;
+    }
+    char a[16], b[16];
+    printf("trim     %s ppm, PLL K 0x%06lx\n", ppb_str(a, ppb), (unsigned long)k);
+    printf("bclk     %s ppm vs %lu Hz over %d ms (absolute value includes the ESP32 crystal error)\n", ppb_str(b, measured), (unsigned long)st.rate * DIGI_BCLK_PER_FRAME, TRIM_MEASURE_MS);
+    return 0;
+}
+
+typedef struct {
+    const char *name;
+    uint32_t captures;
+    uint32_t failed;
+    uint32_t write_errors;
+    uint32_t frames;
+    uint32_t sync_errors;
+    uint32_t parity_errors;
+    uint32_t lr_mismatch;
+} glitch_row_t;
+
+static void glitch_add(glitch_row_t *row, esp_err_t err, esp_err_t write_err, const digi_spdif_report_t *r)
+{
+    row->captures++;
+    row->write_errors += write_err != ESP_OK;
+    if (err != ESP_OK) {
+        row->failed++;
+        return;
+    }
+    row->frames += r->frames;
+    row->sync_errors += r->sync_errors;
+    row->parity_errors += r->parity_errors;
+    row->lr_mismatch += r->lr_mismatch;
+}
+
+static uint32_t glitch_total(const glitch_row_t *row)
+{
+    return row->failed + row->sync_errors + row->parity_errors + row->lr_mismatch;
+}
+
+static bool trim_accuracy(int32_t ppb)
+{
+    const int32_t steps[] = { 0, ppb, -ppb, 0 };
+    int32_t base = 0;
+    uint32_t k[4];
+    bool ok = true;
+    printf("accuracy BCLK over %d ms per step; delta is relative to the first trim 0 reading\n", TRIM_MEASURE_MS);
+    for (int i = 0; i < 4; i++) {
+        int32_t measured;
+        if (!measure_trim(steps[i], &measured, &k[i])) {
+            printf("         trim step failed  FAIL\n");
+            return false;
+        }
+        if (i == 0) {
+            base = measured;
+        }
+        int32_t delta = measured - base;
+        int32_t error = delta - steps[i];
+        int32_t tolerance = TRIM_TOLERANCE_PPB + labs((long)steps[i]) / TRIM_TOLERANCE_SHARE;
+        bool step_ok = labs((long)error) <= tolerance;
+        ok = ok && step_ok;
+        char a[16], b[16], c[16], d[16];
+        printf("         trim %s ppm  K 0x%06lx  measured %s ppm  delta %s  error %s  %s\n", ppb_str(a, steps[i]), (unsigned long)k[i], ppb_str(b, measured), ppb_str(c, delta), ppb_str(d, error), step_ok ? "ok" : "FAIL");
+    }
+    if ((k[1] ^ k[2]) >> 16) {
+        printf("         +-%ld ppm changes R5 (K bits 21-16): byte-wise writes pass through a K far from both ends for one I2C write\n", (long)ppb / 1000);
+    }
+    return ok;
+}
+
+static void print_glitch_row(const glitch_row_t *row)
+{
+    printf("         %-22s %8lu %6lu %8lu %6lu %7lu %6lu %7lu\n", row->name, (unsigned long)row->captures, (unsigned long)row->failed, (unsigned long)row->frames, (unsigned long)row->sync_errors, (unsigned long)row->parity_errors, (unsigned long)row->lr_mismatch, (unsigned long)row->write_errors);
+}
+
+static bool trim_glitches(int32_t ppb, int captures)
+{
+    glitch_row_t rows[] = { { .name = "no write" }, { .name = "rewrite same K" }, { .name = "step" } };
+    digi_spdif_report_t r;
+    if (digi_trim(ppb) != ESP_OK) {
+        return false;
+    }
+    digi_spdif_capture(&r, NULL, NULL);
+    for (int i = 0; i < captures; i++) {
+        esp_err_t err = digi_spdif_capture(&r, NULL, NULL);
+        glitch_add(&rows[0], err, ESP_OK, &r);
+        digi_state_t st;
+        digi_get(&st);
+        esp_err_t write_err;
+        err = digi_trim_capture(st.trim_ppb, true, &r, &write_err);
+        glitch_add(&rows[1], err, write_err, &r);
+        err = digi_trim_capture(st.trim_ppb == ppb ? -ppb : ppb, false, &r, &write_err);
+        glitch_add(&rows[2], err, write_err, &r);
+    }
+    char a[16];
+    printf("glitches S/PDIF captures on GPIO%d starting right after the write (I2C is quiet during a capture); step toggles %s and back\n", CONFIG_APP_DIGI_SPDIF_MON, ppb_str(a, ppb));
+    printf("         %-22s %8s %6s %8s %6s %7s %6s %7s\n", "condition", "captures", "failed", "frames", "sync", "parity", "L!=R", "wr err");
+    for (size_t i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) {
+        print_glitch_row(&rows[i]);
+    }
+    if (!rows[0].frames) {
+        printf("         nothing decoded: wire WM8804 TX0 (pin 17) to GPIO%d  FAIL\n", CONFIG_APP_DIGI_SPDIF_MON);
+        return false;
+    }
+    uint32_t controls = glitch_total(&rows[0]) + glitch_total(&rows[1]);
+    uint32_t step = glitch_total(&rows[2]);
+    bool clean = step * 2 <= controls + 2;
+    printf("         steps: %lu errors in %d captures, controls: %lu in %d  %s\n", (unsigned long)step, captures, (unsigned long)controls, captures * 2, clean ? "ok" : "FAIL");
+    return clean;
+}
+
+static void trim_wobble(int32_t ppb, int seconds)
+{
+    char a[16];
+    printf("wobble   %s ppm every %d ms for %d s, listen for clicks or dropouts (Ctrl-C stops)\n", ppb_str(a, ppb), TRIM_WOBBLE_MS, seconds);
+    int32_t at = ppb;
+    uint32_t writes = 0, errors = 0;
+    for (int ms = 0; ms < seconds * 1000; ms += TRIM_WOBBLE_MS) {
+        errors += digi_trim(at) != ESP_OK;
+        writes++;
+        at = -at;
+        if (shell_getc(TRIM_WOBBLE_MS) == SHELL_CTRL_C) {
+            break;
+        }
+    }
+    printf("         %lu writes, %lu failed\n", (unsigned long)writes, (unsigned long)errors);
+}
+
+static int cmd_trimtest(int argc, char **argv)
+{
+    if (!shell_args_ok(argc, argv, &s_trimtest_args) || !ready()) {
+        return 1;
+    }
+    int32_t ppb;
+    if (!ppm_arg(s_trimtest_args.ppm->dval[0], &ppb)) {
+        return 1;
+    }
+    int captures = s_trimtest_args.captures->count ? s_trimtest_args.captures->ival[0] : TRIM_CAPTURES;
+    int wobble = s_trimtest_args.wobble->count ? s_trimtest_args.wobble->ival[0] : 0;
+    if (!ppb || captures < 1 || wobble < 0) {
+        fprintf(stderr, "digi: ppm must be nonzero, captures >= 1, wobble >= 0\n");
+        return 1;
+    }
+    digi_state_t saved;
+    digi_get(&saved);
+    if (digi_tone(SPDIF_TONE_HZ, SPDIF_TONE_LEVEL) != ESP_OK) {
+        return 1;
+    }
+    printf("rate     %lu Hz, tone %d Hz at %d%%\n", (unsigned long)saved.rate, SPDIF_TONE_HZ, SPDIF_TONE_LEVEL);
+    bool ok = trim_accuracy(ppb);
+    ok = trim_glitches(ppb, captures) && ok;
+    if (wobble) {
+        trim_wobble(ppb, wobble);
+    }
+    digi_trim(saved.trim_ppb);
+    digi_tone(saved.tone_hz, saved.tone_level);
+    printf("result   %s\n", ok ? "ok" : "FAIL");
+    return ok ? 0 : 1;
+}
+
 static int cmd_stop(int argc, char **argv)
 {
     return audio_ready() && digi_tone(0, 0) == ESP_OK ? 0 : 1;
@@ -376,6 +616,8 @@ static const shell_subcmd_t s_subcmds[] = {
     { .name = "rate", .help = "Sample rate: 32000, 44100, 48000, 88200, 96000, 176400, 192000", .func = cmd_rate, .argtable = &s_rate_args },
     { .name = "tone", .help = "Sine test tone on both channels, level in % of full scale (default 10)", .func = cmd_tone, .argtable = &s_tone_args },
     { .name = "stop", .help = "Stop the test tone", .func = cmd_stop },
+    { .name = "trim", .help = "Trim the WM8804 PLL by ppm (fractional K), then measure BCLK", .func = cmd_trim, .argtable = &s_trim_args },
+    { .name = "trimtest", .help = "Check PLL trim accuracy and whether trim writes glitch the S/PDIF stream (needs the monitor wire)", .func = cmd_trimtest, .argtable = &s_trimtest_args },
     { .name = "spdif", .help = "Count S/PDIF edges on the monitor GPIO with silence and with a tone", .func = cmd_spdif },
     { .name = "decode", .help = "Decode whatever S/PDIF stream is on the monitor GPIO, no WM8804 needed", .func = cmd_decode },
 };
@@ -395,10 +637,16 @@ esp_err_t cmd_digi_register(void)
     s_tone_args.hz = arg_int1(NULL, NULL, "<hz>", "tone frequency");
     s_tone_args.level = arg_int0("l", "level", "<0-100>", "level in % of full scale, default 10");
     s_tone_args.end = arg_end(2);
+    s_trim_args.ppm = arg_dbl0(NULL, NULL, "<ppm>", "PLL trim in ppm, +-1000");
+    s_trim_args.end = arg_end(2);
+    s_trimtest_args.ppm = arg_dbl1(NULL, NULL, "<ppm>", "trim step in ppm, e.g. 100");
+    s_trimtest_args.captures = arg_int0("n", "captures", "<n>", "captures per condition, default 10");
+    s_trimtest_args.wobble = arg_int0("w", "wobble", "<s>", "then toggle +-ppm for this many seconds to listen");
+    s_trimtest_args.end = arg_end(4);
 
     const esp_console_cmd_t cmd = {
         .command = "digi",
-        .help = "Digi+ S/PDIF HAT (WM8804): status | probe | reg | rate | tone | stop | spdif | decode",
+        .help = "Digi+ S/PDIF HAT (WM8804): status | probe | reg | rate | tone | stop | trim | trimtest | spdif | decode",
         .hint = "<command> [args]",
         .func = cmd_digi,
     };
