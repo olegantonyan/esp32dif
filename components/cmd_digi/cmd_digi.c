@@ -56,6 +56,11 @@ static struct {
     struct arg_end *end;
 } s_trimtest_args;
 
+static struct {
+    struct arg_lit *dump;
+    struct arg_end *end;
+} s_decode_args;
+
 static bool ready(void)
 {
     digi_state_t st;
@@ -359,10 +364,31 @@ static int cmd_decode(int argc, char **argv)
         printf(" %s %lu.%lu,", pulls[i].name, (unsigned long)high / 10, (unsigned long)high % 10);
     }
     printf("\n");
-    digi_spdif_report_t r;
-    if (digi_spdif_capture(&r, NULL, NULL) != ESP_OK) {
-        printf("decode   capture failed\n");
+    if (!shell_args_ok(argc, argv, &s_decode_args)) {
         return 1;
+    }
+    bool dump = s_decode_args.dump->count;
+    int32_t (*frames)[2] = dump ? calloc(DIGI_SPDIF_MAX_FRAMES, sizeof(*frames)) : NULL;
+    digi_spdif_report_t r;
+    esp_err_t err = dump && !frames ? ESP_ERR_NO_MEM : dump ? digi_spdif_capture_frames(&r, frames) : digi_spdif_capture(&r, NULL, NULL);
+    if (err != ESP_OK) {
+        free(frames);
+        printf("decode   capture failed: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    if (dump) {
+        uint32_t n = r.frames < DIGI_SPDIF_MAX_FRAMES ? r.frames : DIGI_SPDIF_MAX_FRAMES;
+        printf("dump     %lu frames, %lu Hz, %lu sync errors, %lu parity errors\n", (unsigned long)n, (unsigned long)r.rate_hz, (unsigned long)r.sync_errors, (unsigned long)r.parity_errors);
+        for (uint32_t i = 0; i < n; i++) {
+            if (frames[i][0] == DIGI_SPDIF_BREAK) {
+                printf("break\n");
+            } else {
+                printf("%06lx %06lx\n", (unsigned long)(frames[i][0] & 0xFFFFFF), (unsigned long)(frames[i][1] & 0xFFFFFF));
+            }
+        }
+        printf("end\n");
+        free(frames);
+        return 0;
     }
     printf("decode   %d RMT blocks, %lu symbols, %lu subframes, %lu frames, %lu block starts, %lu sync errors\n", r.mem_blocks, (unsigned long)r.symbols, (unsigned long)r.subframes, (unsigned long)r.frames, (unsigned long)r.blocks, (unsigned long)r.sync_errors);
     printf("raw      %lu nonzero symbols, first:", (unsigned long)r.nonzero_symbols);
@@ -619,7 +645,7 @@ static const shell_subcmd_t s_subcmds[] = {
     { .name = "trim", .help = "Trim the WM8804 PLL by ppm (fractional K), then measure BCLK", .func = cmd_trim, .argtable = &s_trim_args },
     { .name = "trimtest", .help = "Check PLL trim accuracy and whether trim writes glitch the S/PDIF stream (needs the monitor wire)", .func = cmd_trimtest, .argtable = &s_trimtest_args },
     { .name = "spdif", .help = "Count S/PDIF edges on the monitor GPIO with silence and with a tone", .func = cmd_spdif },
-    { .name = "decode", .help = "Decode whatever S/PDIF stream is on the monitor GPIO, no WM8804 needed", .func = cmd_decode },
+    { .name = "decode", .help = "Decode whatever S/PDIF stream is on the monitor GPIO, no WM8804 needed", .func = cmd_decode, .argtable = &s_decode_args },
 };
 
 static int cmd_digi(int argc, char **argv)
@@ -643,6 +669,8 @@ esp_err_t cmd_digi_register(void)
     s_trimtest_args.captures = arg_int0("n", "captures", "<n>", "captures per condition, default 10");
     s_trimtest_args.wobble = arg_int0("w", "wobble", "<s>", "then toggle +-ppm for this many seconds to listen");
     s_trimtest_args.end = arg_end(4);
+    s_decode_args.dump = arg_lit0("d", "dump", "print the captured frames as 24-bit hex, left right");
+    s_decode_args.end = arg_end(2);
 
     const esp_console_cmd_t cmd = {
         .command = "digi",

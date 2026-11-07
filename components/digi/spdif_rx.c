@@ -49,6 +49,7 @@ typedef struct {
     uint32_t cells;
     int32_t left_sample;
     int cs_bit;
+    bool mark_breaks;
 } parser_t;
 
 static int32_t sign_extend24(uint32_t v)
@@ -72,7 +73,13 @@ static char preamble_kind(const uint8_t *runs, int n)
 
 static void sync_lost(parser_t *p)
 {
-    p->out->sync_errors++;
+    digi_spdif_report_t *out = p->out;
+    out->sync_errors++;
+    if (p->mark_breaks && out->frames && out->frames < DIGI_SPDIF_MAX_FRAMES && p->samples[(out->frames - 1) * 2] != DIGI_SPDIF_BREAK) {
+        p->samples[out->frames * 2] = DIGI_SPDIF_BREAK;
+        p->samples[out->frames * 2 + 1] = DIGI_SPDIF_BREAK;
+        out->frames++;
+    }
     p->state = WAIT_PREAMBLE;
     p->have_left = false;
 }
@@ -245,7 +252,7 @@ static uint32_t estimate_tone(const digi_spdif_report_t *out, const int32_t *sam
     return (uint32_t)((crossings - 1) / 2.0f / ((last - first) / out->rate_hz) * 10 + 0.5f);
 }
 
-esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg), void *arg)
+static esp_err_t capture(digi_spdif_report_t *out, void (*before)(void *arg), void *arg, int32_t *samples, bool mark_breaks)
 {
     *out = (digi_spdif_report_t){ 0 };
     esp_log_level_set("rmt", ESP_LOG_NONE);
@@ -255,10 +262,7 @@ esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg)
         sym = heap_caps_calloc(capacity, sizeof(rmt_symbol_word_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
         capacity = sym ? capacity : capacity / 2;
     }
-    int32_t *samples = calloc(DIGI_SPDIF_MAX_FRAMES * 2, sizeof(int32_t));
-    if (!sym || !samples) {
-        free(sym);
-        free(samples);
+    if (!sym) {
         return ESP_ERR_NO_MEM;
     }
     rmt_channel_handle_t rx = NULL;
@@ -303,7 +307,7 @@ esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg)
         uint32_t ui16 = unit_interval_x16(sym, n);
         out->ui_x16 = ui16;
         if (ui16) {
-            parser_t p = { .out = out, .samples = samples, .cs_bit = -1 };
+            parser_t p = { .out = out, .samples = samples, .cs_bit = -1, .mark_breaks = mark_breaks };
             for (size_t i = 0; i < n; i++) {
                 uint32_t d[2] = { sym[i].duration0, sym[i].duration1 };
                 for (int j = 0; j < 2 && d[j]; j++) {
@@ -322,7 +326,23 @@ esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg)
         }
     }
     free(sym);
-    free(samples);
     ESP_RETURN_ON_ERROR(err, TAG, "capture");
     return ESP_OK;
+}
+
+esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg), void *arg)
+{
+    int32_t *samples = calloc(DIGI_SPDIF_MAX_FRAMES * 2, sizeof(int32_t));
+    if (!samples) {
+        *out = (digi_spdif_report_t){ 0 };
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t err = capture(out, before, arg, samples, false);
+    free(samples);
+    return err;
+}
+
+esp_err_t digi_spdif_capture_frames(digi_spdif_report_t *out, int32_t (*frames)[2])
+{
+    return capture(out, NULL, NULL, &frames[0][0], true);
 }

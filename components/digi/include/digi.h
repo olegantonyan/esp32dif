@@ -11,6 +11,7 @@
 #define DIGI_DEFAULT_RATE 44100
 #define DIGI_SPDIF_CS_BYTES 5
 #define DIGI_SPDIF_MAX_FRAMES 1024
+#define DIGI_SPDIF_BREAK INT32_MAX
 #define DIGI_BCLK_PER_FRAME 64
 #define DIGI_SPDIF_RAW_SYMBOLS 16
 #define DIGI_SPDIF_DUMP_FRAMES 24
@@ -82,6 +83,7 @@ esp_err_t digi_set_rate(uint32_t rate);
 esp_err_t digi_spdif_edges(uint32_t glitch_ns, uint32_t *per_second);
 uint32_t digi_spdif_high_permille(gpio_pull_mode_t pull);
 esp_err_t digi_spdif_capture(digi_spdif_report_t *out, void (*before)(void *arg), void *arg);
+esp_err_t digi_spdif_capture_frames(digi_spdif_report_t *out, int32_t (*frames)[2]);
 esp_err_t digi_trim(int32_t ppb);
 bool digi_trim_changes_msb(int32_t ppb);
 int32_t digi_trim_keep_msb(int32_t ppb);

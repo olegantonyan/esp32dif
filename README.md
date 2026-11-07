@@ -126,7 +126,20 @@ systemctl --user enable --now spdif-sink
 journalctl --user -u spdif-sink -f
 ```
 
-Limits: one fixed format (everything is resampled to it, so 44.1 kHz music isn't bit-perfect at the 48 kHz default), and PipeWire doesn't know the board's 250 ms buffer, so video players can't compensate for it.
+Limits: one fixed format, and PipeWire doesn't know the board's 250 ms buffer, so video players can't compensate for it.
+
+Bit-perfect needs the sink at 100 % volume, no other stream mixed in, and content at the sink's rate with the PipeWire graph allowed to run at it (`default.clock.allowed-rates = [ 44100 48000 ]`; the stock setting is 48000 only). For 44.1 kHz music: `tools/spdif-sink spdif.local 44100 S24BE`. Measured with `digi decode -d` (24-bit noise and −3 dBFS sines, compared with the file):
+
+| Path | Result |
+|---|---|
+| 48 kHz file → 48 kHz sink, 100 % volume | bit-perfect (269/269 frames) |
+| same at 90 % volume | 0 frames exact |
+| 44.1 kHz file → 44.1 kHz graph and sink | bit-perfect (270/270 frames) |
+| 44.1 kHz → 48 kHz (resampled), 997 Hz / 15 kHz | SINAD 138.1 / 138.8 dB, error −144 dBFS |
+| 48 kHz → 44.1 kHz (resampled), 15 kHz | SINAD 139.6 dB |
+| native, 997 Hz (24-bit floor) | SINAD 143 dB |
+
+PLL trimming only changes the clock (bit-perfect results above were taken with the loop running); PipeWire's resampler error sits at the 24-bit floor.
 
 - PC firewall: allow mDNS (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `--reload`). Without it `spdif.local` doesn't resolve; pass the IP instead.
 - The board plays only streams with a matching SAP announcement (L16 or L24 stereo), and switches the WM8804 to the announced rate.
@@ -206,7 +219,7 @@ Built on ESP-IDF `esp_console`: line editing, history, Tab completion, `help [cm
 | `digi tone <hz> [-l 0-100]` | sine on both channels, level in % of full scale, default 10 |
 | `digi stop` | stop the tone |
 | `digi spdif` | capture and decode the S/PDIF stream on the monitor GPIO: rate, frames, channel status, tone frequency and level |
-| `digi decode` | decode any S/PDIF stream on the monitor GPIO, no WM8804 needed: edges, levels with pulls, cell widths, rate, channel status, per-channel tone and level, sample bits |
+| `digi decode` | decode any S/PDIF stream on the monitor GPIO, no WM8804 needed: edges, levels with pulls, cell widths, rate, channel status, per-channel tone and level, sample bits; `-d` dumps every captured frame as hex, with `break` where sync was lost |
 
 ## Layout
 
