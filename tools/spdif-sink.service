@@ -1,0 +1,12 @@
+[Unit]
+Description=S/PDIF over Wi-Fi sink (RTP to the ESP32-C5)
+After=pipewire.service
+BindsTo=pipewire.service
+
+[Service]
+ExecStart=%h/.local/bin/spdif-sink
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=pipewire.service

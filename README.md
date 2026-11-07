@@ -117,6 +117,17 @@ tools/spdif-sink spdif.local 44100 S16BE
 
 The script resolves `spdif.local` and runs a PipeWire client with `module-rtp-sink` (unicast to UDP 5004) and `module-rtp-sap` (announces the stream format to the board on UDP 9875). It adds an output device "S/PDIF over Wi-Fi"; pick it in the sound settings or `pw-play --target=spdif-rtp file.wav`. The node must be `media.class = "Audio/Sink"`: as a plain stream, WirePlumber links the microphone into it.
 
+The script runs until stopped. It waits until the board resolves and answers ping, pings it every 10 s, and removes the sink after 3 misses (`SPDIF_CHECK_S`, `SPDIF_MISSES`), so the device disappears ~30 s after the board goes offline and returns ~10 s after it's back. If the board's DHCP address changes, the sink follows it. To run it as a user service that starts with PipeWire:
+
+```sh
+ln -s "$PWD/tools/spdif-sink" ~/.local/bin/spdif-sink
+systemctl --user link "$PWD/tools/spdif-sink.service"
+systemctl --user enable --now spdif-sink
+journalctl --user -u spdif-sink -f
+```
+
+Limits: one fixed format (everything is resampled to it, so 44.1 kHz music isn't bit-perfect at the 48 kHz default), and PipeWire doesn't know the board's 250 ms buffer, so video players can't compensate for it.
+
 - PC firewall: allow mDNS (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `--reload`). Without it `spdif.local` doesn't resolve; pass the IP instead.
 - The board plays only streams with a matching SAP announcement (L16 or L24 stereo), and switches the WM8804 to the announced rate.
 - Buffer: target 250 ms (playback latency), in PSRAM: 1152 KB, 4 s at 48 kHz L24. Without PSRAM 64 KB of internal RAM. menuconfig → Board RTP receiver.
@@ -214,7 +225,8 @@ components/net/          Wi-Fi client: NVS-saved network, reconnect backoff, 5 G
 components/cmd_wifi/     wifi
 components/rtp/          RTP receiver, SAP/SDP parser, playback ring buffer feeding the Digi+
 components/cmd_rtp/      rtp
-tools/spdif-sink         PC side: PipeWire RTP sink + SAP announcement to the board
+tools/spdif-sink         PC side: PipeWire RTP sink + SAP announcement to the board, follows the board coming and going
+tools/spdif-sink.service systemd user unit for it
 components/shell/        REPL setup + helpers: shell_args_ok, shell_subcmd_run, shell_getc
 components/cmd_system/   sysinfo, version, uptime, reboot, free, ps
 docs/digi-bringup.md     Digi+ breadboard bring-up notes

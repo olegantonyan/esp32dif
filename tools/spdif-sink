@@ -1,22 +1,33 @@
 #!/bin/sh
 # Usage: tools/spdif-sink [host] [rate] [format]   e.g. tools/spdif-sink spdif.local 48000 S24BE
-set -eu
+set -u
 
 host=${1:-spdif.local}
 rate=${2:-48000}
 format=${3:-S24BE}
 port=${SPDIF_PORT:-5004}
 sap_port=${SPDIF_SAP_PORT:-9875}
-
-ip=$(getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }')
-if [ -z "$ip" ]; then
-    echo "spdif-sink: $host not found via mDNS; is the ESP on Wi-Fi ('wifi status')?" >&2
-    exit 1
-fi
+check_s=${SPDIF_CHECK_S:-10}
+misses=${SPDIF_MISSES:-3}
 
 conf=$(mktemp --suffix=.conf)
-trap 'rm -f "$conf"' EXIT INT TERM
-cat > "$conf" <<EOF
+pid=
+stop_sink() {
+    if [ -n "$pid" ]; then
+        kill "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+    fi
+    pid=
+}
+trap 'stop_sink; rm -f "$conf"' EXIT
+trap 'exit 0' INT TERM
+
+resolve() { getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }'; }
+alive() { ping -c 1 -W 2 "$1" >/dev/null 2>&1; }
+nap() { sleep "$check_s" & wait $!; }
+
+write_conf() {
+    cat > "$conf" <<EOF
 context.spa-libs = {
     audio.convert.* = audioconvert/libspa-audioconvert
     support.*       = support/libspa-support
@@ -28,13 +39,13 @@ context.modules = [
     { name = libpipewire-module-adapter }
     { name = libpipewire-module-rtp-sap
         args = {
-            sap.ip = "$ip"
+            sap.ip = "$1"
             sap.port = $sap_port
         }
     }
     { name = libpipewire-module-rtp-sink
         args = {
-            destination.ip = "$ip"
+            destination.ip = "$1"
             destination.port = $port
             sess.media = "audio"
             audio.format = "$format"
@@ -52,6 +63,35 @@ context.modules = [
     }
 ]
 EOF
+}
 
-echo "spdif-sink: $host is $ip, sending $format $rate Hz to UDP $port; Ctrl-C stops"
-PIPEWIRE_DEBUG=${PIPEWIRE_DEBUG:-W,mod.rtp-sap:E} pipewire -c "$conf"
+waiting=
+while :; do
+    ip=$(resolve)
+    if [ -z "$ip" ] || ! alive "$ip"; then
+        [ -n "$waiting" ] || echo "spdif-sink: waiting for $host (mDNS + ping every $check_s s)"
+        waiting=1
+        nap
+        continue
+    fi
+    waiting=
+    write_conf "$ip"
+    echo "spdif-sink: $host is $ip, sending $format $rate Hz to UDP $port"
+    PIPEWIRE_DEBUG=${PIPEWIRE_DEBUG:-W,mod.rtp-sap:E} pipewire -c "$conf" &
+    pid=$!
+    missed=0
+    while kill -0 "$pid" 2>/dev/null; do
+        nap
+        if alive "$ip"; then missed=0; else missed=$((missed + 1)); fi
+        if [ "$missed" -ge "$misses" ]; then
+            echo "spdif-sink: $host stopped answering, removing the sink"
+            break
+        fi
+        now=$(resolve)
+        if [ -n "$now" ] && [ "$now" != "$ip" ]; then
+            echo "spdif-sink: $host moved to $now"
+            break
+        fi
+    done
+    stop_sink
+done
