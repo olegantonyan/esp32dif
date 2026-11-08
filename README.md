@@ -63,7 +63,7 @@ If you rename the project, flash over USB too: OTA accepts only firmware with th
 
 ## Playing audio from the PC
 
-The PC runs `tools/esp32dif-sink`. It adds an output device "S/PDIF over Wi-Fi" to PipeWire. Select it in the sound settings, or play a file with `pw-play --target=spdif-rtp file.wav`.
+The PC runs `tools/esp32dif-sink`. It adds an output device "S/PDIF over Wi-Fi" to PipeWire. Select it in the sound settings, or play a file with `pw-play --target=esp32dif-rtp file.wav`.
 
 ```sh
 tools/esp32dif-sink                              # esp32dif.local, 48000 Hz, S24BE
