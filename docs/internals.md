@@ -62,10 +62,12 @@ Output is silent at boot. menuconfig → Board Digi+ → Test tone at boot sets 
 
 rtp-sink stamps packets with its driver's clock position. When a client links the sink with an ALSA device (the Plasma applet's level meters do this), PipeWire moves the sink to that device's driver: the RTP timestamps jump, rtp-sink resyncs and drops audio (you hear a stall), and waking a suspended device can stall the graph for up to 230 ms more. `esp32dif-sink` sets `node.group = "pipewire.dummy"`, which keeps the sink on the Dummy-Driver. Because of this, the Plasma applet shows the sink only with "Show virtual devices" on.
 
+Remote buttons: the sink opens TCP 5005 to the board and sends the password line; the board answers `ok` or `denied`, then sends one line per button press (`previous`, `play-pause`, `next`) and `ping` every 30 s. The sink reconnects after 75 s without a line. NEC repeat frames and the same key again within 300 ms are ignored. If a connected PC is the current RTP source, only it gets the action. The sink calls the MPRIS `Previous`/`PlayPause`/`Next` methods with `busctl --user`.
+
 ## Firmware layout
 
 ```
-main/main.c                 settings → ota → led/oled/digi → net → rtp → shell → commands → web → telnet → shell_start
+main/main.c                 settings → ota → led/oled/ir/digi → net → rtp → shell → commands → web → telnet → remote → shell_start
 main/status_led.c           default LED pattern
 main/status_oled.c          OLED status screen
 components/settings/        hostname and password in NVS (also does NVS init)
@@ -75,11 +77,13 @@ components/digi/            WM8804 (PLL, clock master, S/PDIF TX), I2S slave, te
 components/i2c_bus/         shared I2C bus (OLED, WM8804), bus recovery
 components/oled/            SSD1306 driver, text framebuffer, 5x7 font
 components/led/             RGB LED driver and effects
+components/ir/              IR receiver: GPIO edge timestamps, NEC/Samsung decoder
+components/remote/          IR keymap (keymap.c) and TCP 5005 server that sends button actions to the sink
 components/web/             HTTP server, Basic auth, embedded index.html, JSON API, firmware upload
 components/telnet/          telnet server: login, line editor, per-task stdio (needs newlib)
 components/ota/             OTA writes, image checks, 60 s mark-valid timer, rollback
 components/shell/           USB console, shell_exec (one command at a time), helpers
-components/cmd_*/           shell commands: system, wifi, rtp, config, ota, oled, led, digi
+components/cmd_*/           shell commands: system, wifi, rtp, config, ota, oled, led, ir, digi
 partitions.csv              nvs, otadata, phy_init, two 3 MB app slots
 pipewire/esp32dif-sink      PC side: PipeWire RTP sink + SAP announcement
 pipewire/esp32dif-sink.service systemd user unit

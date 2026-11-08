@@ -1,6 +1,6 @@
-#!/bin/sh
+#!/bin/bash
 # Usage: pipewire/esp32dif-sink [host] [rate] [format]   e.g. pipewire/esp32dif-sink esp32dif.local 48000 S24BE
-# Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT, SPDIF_PASSWORD (the service reads them from ~/.config/esp32dif-sink.conf)
+# Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT, SPDIF_PASSWORD, SPDIF_REMOTE (the service reads them from ~/.config/esp32dif-sink.conf)
 set -u
 
 host=${1:-${SPDIF_HOST:-esp32dif.local}}
@@ -11,9 +11,12 @@ sap_port=${SPDIF_SAP_PORT:-9875}
 check_s=${SPDIF_CHECK_S:-10}
 misses=${SPDIF_MISSES:-3}
 password=${SPDIF_PASSWORD:-esp32dif-admin}
+remote=${SPDIF_REMOTE:-1}
+remote_port=${SPDIF_REMOTE_PORT:-5005}
 
 conf=$(mktemp --suffix=.conf)
 pid=
+remote_pid=
 stop_sink() {
     if [ -n "$pid" ]; then
         kill "$pid" 2>/dev/null
@@ -21,7 +24,7 @@ stop_sink() {
     fi
     pid=
 }
-trap 'stop_sink; rm -f "$conf"' EXIT
+trap 'stop_sink; [ -z "$remote_pid" ] || kill "$remote_pid" 2>/dev/null; rm -f "$conf"' EXIT
 trap 'exit 0' INT TERM
 
 resolve() { getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }'; }
@@ -40,6 +43,56 @@ alive() {
     [ "$code" = 200 ]
 }
 nap() { sleep "$check_s" & wait $!; }
+
+mpris_player=
+mpris() {
+    local p status playing= paused= known= players
+    players=$(busctl --user list --no-legend 2>/dev/null | awk '$1 ~ /^org\.mpris\.MediaPlayer2\./ && $2 != "-" { print $1 }')
+    for p in $players; do
+        status=$(busctl --user get-property "$p" /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player PlaybackStatus 2>/dev/null)
+        case $status in
+            *Playing*) [ -n "$playing" ] || playing=$p ;;
+            *Paused*) [ -n "$paused" ] || paused=$p ;;
+        esac
+        [ "$p" != "$mpris_player" ] || known=$p
+    done
+    p=${playing:-${known:-$paused}}
+    if [ -z "$p" ]; then
+        echo "esp32dif-sink: remote $1: no media player"
+        return
+    fi
+    mpris_player=$p
+    busctl --user call "$p" /org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player "$1" || echo "esp32dif-sink: remote $1 failed on $p"
+}
+
+remote_loop() {
+    trap 'exit 0' TERM
+    local ip= reply= action= connected= refused=
+    while :; do
+        ip=$(resolve)
+        if [ -n "$ip" ] && exec 3<>"/dev/tcp/$ip/$remote_port" 2>/dev/null; then
+            printf '%s\n' "$password" >&3
+            reply=
+            if read -r -t 5 reply <&3 && [ "$reply" = ok ]; then
+                [ -n "$connected" ] || echo "esp32dif-sink: remote buttons connected"
+                connected=1
+                refused=
+                while read -r -t 75 action <&3; do
+                    case $action in
+                        previous) mpris Previous ;;
+                        play-pause) mpris PlayPause ;;
+                        next) mpris Next ;;
+                    esac
+                done
+            elif [ "$reply" = denied ] && [ -z "$refused" ]; then
+                refused=1
+                echo "esp32dif-sink: $host rejected the password for remote buttons, set SPDIF_PASSWORD"
+            fi
+            exec 3<&-
+        fi
+        nap
+    done
+}
 
 write_conf() {
     cat > "$conf" <<EOF
@@ -79,6 +132,11 @@ context.modules = [
 ]
 EOF
 }
+
+if [ "$remote" = 1 ]; then
+    remote_loop &
+    remote_pid=$!
+fi
 
 waiting=
 while :; do

@@ -1,0 +1,9 @@
+menu "Board IR receiver"
+
+    config APP_IR_GPIO
+        int "IR receiver output GPIO"
+        default 10
+        help
+            Demodulated output of a 38 kHz IR receiver (idles high). GPIO10 is J1 pin 11 on ESP32-C5-DevKitC-1.
+
+endmenu

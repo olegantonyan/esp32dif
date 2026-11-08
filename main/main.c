@@ -18,6 +18,9 @@
 #include "cmd_wifi.h"
 #include "rtp.h"
 #include "cmd_rtp.h"
+#include "ir.h"
+#include "cmd_ir.h"
+#include "remote.h"
 #include "status_led.h"
 #include "status_oled.h"
 
@@ -39,6 +42,9 @@ void app_main(void)
     } else {
         ESP_LOGE(TAG, "oled failed to start, continuing without it");
     }
+    if (ir_init() != ESP_OK) {
+        ESP_LOGE(TAG, "ir receiver failed to start, continuing without it");
+    }
     if (digi_init() != ESP_OK) {
         ESP_LOGW(TAG, "digi not ready, continuing without it");
     }
@@ -57,11 +63,15 @@ void app_main(void)
     ESP_ERROR_CHECK(cmd_rtp_register());
     ESP_ERROR_CHECK(cmd_config_register());
     ESP_ERROR_CHECK(cmd_ota_register());
+    ESP_ERROR_CHECK(cmd_ir_register());
     if (net && web_start() != ESP_OK) {
         ESP_LOGE(TAG, "web UI failed to start, continuing without it");
     }
     if (net && telnet_start() != ESP_OK) {
         ESP_LOGE(TAG, "telnet failed to start, continuing without it");
+    }
+    if (net && remote_init() != ESP_OK) {
+        ESP_LOGE(TAG, "remote button server failed to start, continuing without it");
     }
     ESP_ERROR_CHECK(shell_start());
 }

@@ -80,6 +80,7 @@ To turn it off for your user: `systemctl --user mask esp32dif-sink`.
 
 - **Password:** every 10 s the service logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the service logs an error and doesn't create the device.
 - **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the service follows it.
+- **Remote buttons:** the service also connects to the board on TCP 5005 and turns IR remote buttons into MPRIS commands over D-Bus: previous, play/pause, next. They go to the player that is playing, otherwise to the last one used, otherwise to a paused one. With two PCs connected, only the one streaming to the board gets them. Known remotes: Edifier S2000MKII (`ir keys`). Turn it off with `SPDIF_REMOTE=0`.
 - **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
 
 ### Settings
@@ -95,11 +96,11 @@ SPDIF_PASSWORD=esp32dif-admin
 
 Run `chmod 600` on this file, because it has the password. Apply changes with `systemctl --user restart esp32dif-sink`. When you change the board's hostname or password, change them here too.
 
-Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (10), `SPDIF_MISSES` (3).
+Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (10), `SPDIF_MISSES` (3), `SPDIF_REMOTE` (1), `SPDIF_REMOTE_PORT` (5005).
 
 ### Without the package
 
-If there is no package for your distro, link the files from this folder. The script needs `pipewire`, `curl` and `nss-mdns`.
+If there is no package for your distro, link the files from this folder. The script needs `bash`, `pipewire`, `curl` and `nss-mdns`.
 
 ```sh
 ln -s "$PWD/pipewire/esp32dif-sink" ~/.local/bin/esp32dif-sink
@@ -148,13 +149,14 @@ How it works:
 | OLED and Digi+ I2C SDA / SCL | 8 / 9 | J1 pin 9 / 10 |
 | Digi+ I2S BCLK / WS / DOUT | 24 / 23 / 4 | J3 pin 4 / 5 / 8 |
 | S/PDIF monitor (optional, for `digi spdif`) | 5 | J3 pin 9 |
+| IR receiver output (Digi+ HAT or any 38 kHz receiver, 3.3 V) | 10 | J1 pin 11 |
 | BOOT button | 28 | J3 pin 11 |
 | USB D- / D+ | 13 / 14 | J3 pin 14 / 13 |
 | UART0 TX / RX | 11 / 12 | J3 pin 2 / 3 |
 
 Don't use for new wiring: strapping pins 2, 3, 7, 25, 26, 27, 28; flash/PSRAM pins 16–22 (and 15 on PSRAM modules); 0 and 1 if a 32 kHz crystal is fitted.
 
-Pins and I2C addresses can be changed in `idf.py menuconfig` (Board OLED, Board I2C bus, Board Digi+, Board LED).
+Pins and I2C addresses can be changed in `idf.py menuconfig` (Board OLED, Board I2C bus, Board Digi+, Board LED, Board IR receiver).
 
 ### OLED
 
@@ -228,6 +230,8 @@ The same commands work on USB and telnet. Line editing, history, Tab completion 
 | `digi spdif` | check the S/PDIF output on the monitor pin |
 | `digi decode [-d]` | decode any S/PDIF signal on the monitor pin (`-d`: print all frames) |
 | `digi trim <ppm>` / `digi trimtest <ppm>` | adjust the WM8804 clock / test clock adjustment |
+| `ir status` / `ir keys` | IR line level, last frame and connected PCs / known remote buttons |
+| `ir watch [-r]` | print remote codes live (`-r`: pulse widths); add new buttons to `components/remote/keymap.c` |
 | `oled status` / `on` / `off` / `contrast <0-255>` | display state / power / contrast |
 | `oled print <row> <text>` / `clear` / `auto` | write text / clear / back to the status screen |
 | `led color <color>` | color: name, `#rrggbb` or `r,g,b` (`led presets` lists names) |

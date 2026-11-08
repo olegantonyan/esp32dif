@@ -1,0 +1,8 @@
+menu "Board IR remote"
+
+    config APP_REMOTE_PORT
+        int "TCP port for remote control clients"
+        range 1 65535
+        default 5005
+
+endmenu

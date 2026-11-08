@@ -3522,6 +3522,13 @@ CONFIG_APP_I2C_SCL=9
 # end of Board I2C bus
 
 #
+# Board IR receiver
+#
+# default:
+CONFIG_APP_IR_GPIO=10
+# end of Board IR receiver
+
+#
 # Board LED
 #
 # default:
@@ -3557,6 +3564,13 @@ CONFIG_APP_OLED_HEIGHT_64=y
 # default:
 CONFIG_APP_OLED_HEIGHT=64
 # end of Board OLED
+
+#
+# Board IR remote
+#
+# default:
+CONFIG_APP_REMOTE_PORT=5005
+# end of Board IR remote
 
 #
 # Board RTP receiver
