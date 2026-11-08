@@ -10,6 +10,11 @@ menu "Board RTP receiver"
         range 1024 65535
         default 9875
 
+    config APP_RTP_LEASE_S
+        int "Accept RTP/SAP from a sender for this many seconds after it authenticates (POST /api/rtp/allow)"
+        range 10 3600
+        default 60
+
     config APP_RTP_IDLE_MS
         int "A stream counts as stopped after this many ms without packets"
         range 100 60000

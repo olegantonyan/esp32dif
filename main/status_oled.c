@@ -1,10 +1,11 @@
 #include <stdio.h>
+#include <string.h>
 #include "digi.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
-#include "led.h"
 #include "net.h"
 #include "rtp.h"
+#include "settings.h"
 #include "status_oled.h"
 
 #define DIGI_BITS 24
@@ -57,21 +58,24 @@ static void network_line(char *line, size_t len)
 void status_oled_screen(oled_lines_t lines)
 {
     uint32_t s = esp_timer_get_time() / 1000000;
-    led_state_t led;
-    led_get(&led);
-    const char *name = led_color_name(led.color);
-    char color[8];
-    if (!name) {
-        snprintf(color, sizeof(color), "#%02x%02x%02x", led.color.r, led.color.g, led.color.b);
-        name = color;
-    }
-    bool colored = led.effect != LED_OFF && led.effect != LED_RAINBOW;
+    settings_t cfg;
+    settings_get(&cfg);
 
     audio_lines(lines[0], lines[1], sizeof(lines[0]));
     network_line(lines[2], sizeof(lines[2]));
-    snprintf(lines[3], sizeof(lines[3]), "up %ud %02u:%02u:%02u", (unsigned)(s / 86400), (unsigned)(s / 3600 % 24), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+    strlcpy(lines[3], cfg.hostname, sizeof(lines[3]));
+    strlcat(lines[3], ".local", sizeof(lines[3]));
 #if OLED_ROWS > 4
-    snprintf(lines[4], sizeof(lines[4]), "led %s%s%s", led_effect_name(led.effect), colored ? " " : "", colored ? name : "");
-    snprintf(lines[5], sizeof(lines[5]), "heap %u KB free", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DEFAULT) / 1024));
+    if (net_ap_active()) {
+        int n = net_ap_clients();
+        snprintf(lines[4], sizeof(lines[4]), "AP on, %d client%s", n, n == 1 ? "" : "s");
+    } else {
+        snprintf(lines[4], sizeof(lines[4]), "AP off");
+    }
+    snprintf(lines[5], sizeof(lines[5]), "pw %.18s", cfg.password);
+    snprintf(lines[6], sizeof(lines[6]), "up %ud %02u:%02u:%02u", (unsigned)(s / 86400), (unsigned)(s / 3600 % 24), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+    snprintf(lines[7], sizeof(lines[7]), "heap %u KB free", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DEFAULT) / 1024));
+#else
+    snprintf(lines[3], sizeof(lines[3]), "pw %.18s", cfg.password);
 #endif
 }

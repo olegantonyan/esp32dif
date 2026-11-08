@@ -5,10 +5,10 @@ version_extractors:
       version: "0.1.0"
 
 common: &common
-  package_name: "spdif-sink"
+  package_name: "esp32dif-sink"
   maintainer: "Oleg Antonyan <oleg.b.antonyan@gmail.com>"
-  homepage: "https://github.com/olegantonyan/esp32c5"
-  description: "PipeWire sink that streams RTP audio to the ESP32-C5 S/PDIF receiver"
+  homepage: "https://github.com/olegantonyan/esp32dif"
+  description: "PipeWire sink that streams RTP audio to the esp32dif S/PDIF receiver"
 
 ignore_source_files:
   - .git
@@ -32,26 +32,26 @@ repositories:
     retain_packages: 0
     <<: *common
     localfs:
-      path: "${HOME}/spdif-sink-repo"
+      path: "${HOME}/esp32dif-sink-repo"
 
 rpm: &rpm
   <<: *common
   build_dependencies: [systemd-rpm-macros]
-  runtime_dependencies: [pipewire, iputils, nss-mdns]
+  runtime_dependencies: [pipewire, curl, nss-mdns]
   rpm:
     spec_template: ".omnipackage/specfile.spec.liquid"
 
 deb: &deb
   <<: *common
   build_dependencies: []
-  runtime_dependencies: [pipewire, iputils-ping, libnss-mdns]
+  runtime_dependencies: [pipewire, curl, libnss-mdns]
   deb:
     debian_templates: ".omnipackage/deb"
 
 pacman: &pacman
   <<: *common
   build_dependencies: []
-  runtime_dependencies: [pipewire, iputils, nss-mdns]
+  runtime_dependencies: [pipewire, curl, nss-mdns]
   pacman:
     pkgbuild_template: ".omnipackage/PKGBUILD.liquid"
 

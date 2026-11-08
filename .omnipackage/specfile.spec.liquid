@@ -18,21 +18,21 @@ Requires:   {{ runtime_dependencies | join: ', ' }}
 %build
 
 %install
-install -Dm755 tools/spdif-sink %{buildroot}/usr/bin/spdif-sink
+install -Dm755 tools/esp32dif-sink %{buildroot}/usr/bin/esp32dif-sink
 install -d %{buildroot}%{_userunitdir} %{buildroot}%{_userpresetdir}
-sed 's|%%h/.local/bin/|/usr/bin/|' tools/spdif-sink.service > %{buildroot}%{_userunitdir}/spdif-sink.service
-echo 'enable spdif-sink.service' > %{buildroot}%{_userpresetdir}/80-spdif-sink.preset
+sed 's|%%h/.local/bin/|/usr/bin/|' tools/esp32dif-sink.service > %{buildroot}%{_userunitdir}/esp32dif-sink.service
+echo 'enable esp32dif-sink.service' > %{buildroot}%{_userpresetdir}/80-esp32dif-sink.preset
 
 %post
-%systemd_user_post spdif-sink.service
+%systemd_user_post esp32dif-sink.service
 
 %preun
-%systemd_user_preun spdif-sink.service
+%systemd_user_preun esp32dif-sink.service
 
 %files
-/usr/bin/spdif-sink
-%{_userunitdir}/spdif-sink.service
-%{_userpresetdir}/80-spdif-sink.preset
+/usr/bin/esp32dif-sink
+%{_userunitdir}/esp32dif-sink.service
+%{_userpresetdir}/80-esp32dif-sink.preset
 
 %changelog
 * Sun Nov 08 2026 {{ maintainer }}

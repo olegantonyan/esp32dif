@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>esp32dif</title>
+<style>
+:root{--fg:#1d1d1f;--muted:#6e6e73;--bg:#f5f5f7;--card:#fff;--line:#d2d2d7;--acc:#0a66c2;--ok:#1a7f37;--bad:#c62828}
+@media (prefers-color-scheme:dark){:root{--fg:#f2f2f2;--muted:#9a9aa0;--bg:#111113;--card:#1c1c1f;--line:#333338;--acc:#4ea1ff;--ok:#4cc26a;--bad:#ff6b6b}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans-serif}
+main{max-width:40rem;margin:0 auto;padding:1rem}
+h1{font-size:1.3rem;margin:.2rem 0 1rem}
+h1 small{color:var(--muted);font-weight:400;font-size:.9rem}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem;margin-bottom:1rem}
+h2{font-size:1rem;margin:0 0 .6rem}
+table{width:100%;border-collapse:collapse}
+td{padding:.25rem 0;border-bottom:1px solid var(--line);vertical-align:top}
+td:first-child{color:var(--muted);width:7.5rem}
+tr:last-child td{border-bottom:0}
+label{display:block;margin:.5rem 0 .2rem;color:var(--muted);font-size:.9rem}
+input,select{width:100%;padding:.45rem .5rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+button{margin-top:.7rem;padding:.45rem .9rem;border:0;border-radius:6px;background:var(--acc);color:#fff;font:inherit;cursor:pointer}
+button.plain{background:transparent;color:var(--acc);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:.5rem;flex-wrap:wrap}
+.msg{margin-top:.6rem;min-height:1.2em;font-size:.9rem}
+.msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
+#nets{margin-top:.5rem;max-height:14rem;overflow:auto}
+#nets div{display:flex;justify-content:space-between;padding:.3rem .2rem;border-bottom:1px solid var(--line);cursor:pointer}
+#nets div:hover{background:var(--bg)}
+#nets span{color:var(--muted)}
+progress{width:100%;margin-top:.6rem}
+.dim{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1 id="title">esp32dif <small id="conn"></small></h1>
+
+<section>
+<h2>Status</h2>
+<table id="status"></table>
+</section>
+
+<section>
+<h2>Wi-Fi</h2>
+<button class="plain" id="scan">Scan</button>
+<div id="nets"></div>
+<label for="ssid">Network</label>
+<input id="ssid" maxlength="32" autocomplete="off">
+<label for="wpass">Password (empty for open networks)</label>
+<input id="wpass" type="password" maxlength="64" autocomplete="off">
+<label for="band">Band</label>
+<select id="band"><option value="auto">auto (prefers 5 GHz)</option><option value="5">5 GHz</option><option value="2.4">2.4 GHz</option></select>
+<div class="row"><button id="connect">Connect</button><button class="plain" id="forget">Forget saved</button></div>
+<div class="msg" id="wmsg"></div>
+</section>
+
+<section>
+<h2>Device</h2>
+<label for="host">Hostname (a-z, 0-9, '-'; also the fallback AP name)</label>
+<input id="host" maxlength="32" autocomplete="off">
+<label for="pass1">New password (web UI, telnet, fallback AP, RTP senders; empty keeps it)</label>
+<input id="pass1" type="password" maxlength="63" autocomplete="new-password">
+<label for="pass2">Repeat new password</label>
+<input id="pass2" type="password" maxlength="63" autocomplete="new-password">
+<button id="save">Save</button>
+<div class="msg" id="smsg"></div>
+</section>
+
+<section>
+<h2>Firmware</h2>
+<input id="fw" type="file" accept=".bin">
+<div class="row"><button id="upload">Upload and install</button><button class="plain" id="reboot">Reboot</button></div>
+<progress id="prog" max="1" value="0" hidden></progress>
+<div class="msg" id="fmsg"></div>
+</section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let last = null, hostFilled = false;
+
+function msg(id, text, ok) {
+  const el = $(id);
+  el.textContent = text;
+  el.className = 'msg ' + (ok === undefined ? '' : ok ? 'ok' : 'bad');
+}
+
+async function call(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', body });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t || r.status + ' ' + r.statusText);
+  return t;
+}
+
+function uptime(s) {
+  const d = Math.floor(s / 86400), p = n => String(n).padStart(2, '0');
+  return `${d}d ${p(Math.floor(s / 3600) % 24)}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}`;
+}
+
+function rows(list) {
+  $('status').replaceChildren(...list.filter(Boolean).map(([k, v]) => {
+    const tr = document.createElement('tr');
+    const a = document.createElement('td'), b = document.createElement('td');
+    a.textContent = k;
+    b.textContent = v;
+    tr.append(a, b);
+    return tr;
+  }));
+}
+
+function render(s) {
+  last = s;
+  document.title = s.hostname + ' - esp32dif';
+  $('title').firstChild.textContent = s.hostname + '.local ';
+  if (!hostFilled) { $('host').value = s.hostname; hostFilled = true; }
+  const sp = s.spdif, r = s.rtp, w = s.sta, ap = s.ap, o = s.ota;
+  const khz = sp.rate / 1000;
+  const src = sp.tone_hz ? `test tone ${sp.tone_hz} Hz`
+    : r.state === 'playing' ? `RTP from ${r.from}, ${r.rate / 1000} kHz ${r.bits}-bit, buffer ${r.buffer_ms} ms`
+    : r.state === 'buffering' ? `RTP from ${r.from}, buffering` : 'idle';
+  rows([
+    ['S/PDIF', sp.ready ? `${khz} kHz 24-bit` : 'off (no WM8804)'],
+    ['Source', src],
+    r.active && ['RTP loss', `${r.lost} lost of ${r.packets + r.lost} packets`],
+    ['Senders', (r.senders.length ? r.senders.join(', ') : 'none authenticated') + (r.denied ? `; ${r.denied} packets denied` : '')],
+    ['Wi-Fi', w.state + (w.ssid ? ` to ${w.ssid}` : '') + (w.rssi !== undefined ? `, ${w.rssi} dBm, ch ${w.channel}` : '')],
+    w.ip !== '0.0.0.0' && ['IP', w.ip],
+    ['Saved network', w.saved || 'none'],
+    ['Fallback AP', ap.active ? `on: ${ap.ssid}, 192.168.4.1, ${ap.clients} client${ap.clients === 1 ? '' : 's'}` : 'off'],
+    ['Firmware', `${s.version} on ${o.running}, ${o.state}`],
+    ['Other slot', o.other ? `${o.other}: ${o.other_version || 'empty'}` : '-'],
+    ['Uptime', uptime(s.uptime_s)],
+    ['Free heap', Math.round(s.free_heap / 1024) + ' KB'],
+  ]);
+}
+
+async function refresh() {
+  try {
+    render(JSON.parse(await call('/api/status')));
+    $('conn').textContent = '';
+  } catch (e) {
+    $('conn').textContent = 'offline';
+  }
+}
+
+$('scan').onclick = async () => {
+  $('scan').disabled = true;
+  msg('wmsg', 'scanning...');
+  try {
+    const seen = new Map();
+    for (const n of JSON.parse(await call('/api/scan'))) {
+      if (n.ssid && (!seen.has(n.ssid) || seen.get(n.ssid).rssi < n.rssi)) seen.set(n.ssid, n);
+    }
+    const list = [...seen.values()].sort((a, b) => b.rssi - a.rssi);
+    $('nets').replaceChildren(...list.map(n => {
+      const d = document.createElement('div'), name = document.createElement('b'), info = document.createElement('span');
+      name.textContent = n.ssid;
+      info.textContent = `${n.rssi} dBm, ch ${n.channel}, ${n.auth}`;
+      d.append(name, info);
+      d.onclick = () => { $('ssid').value = n.ssid; $('wpass').focus(); };
+      return d;
+    }));
+    msg('wmsg', list.length ? 'pick a network' : 'no networks found');
+  } catch (e) {
+    msg('wmsg', e.message, false);
+  }
+  $('scan').disabled = false;
+};
+
+$('connect').onclick = async () => {
+  try {
+    msg('wmsg', await call('/api/wifi', new URLSearchParams({ ssid: $('ssid').value, password: $('wpass').value, band: $('band').value })), true);
+  } catch (e) {
+    msg('wmsg', e.message, false);
+  }
+};
+
+$('forget').onclick = async () => {
+  if (!confirm('Erase the saved network? The device stays connected until reboot.')) return;
+  try { msg('wmsg', await call('/api/wifi/forget', ''), true); } catch (e) { msg('wmsg', e.message, false); }
+};
+
+$('save').onclick = async () => {
+  const p1 = $('pass1').value, p2 = $('pass2').value;
+  if (p1 !== p2) return msg('smsg', 'passwords differ', false);
+  const f = new URLSearchParams({ hostname: $('host').value.trim() });
+  if (p1) f.set('password', p1);
+  try {
+    msg('smsg', await call('/api/settings', f), true);
+    $('pass1').value = $('pass2').value = '';
+    if (p1) { msg('smsg', 'saved; log in again with the new password', true); setTimeout(() => location.reload(), 1500); }
+  } catch (e) {
+    msg('smsg', e.message, false);
+  }
+};
+
+$('upload').onclick = () => {
+  const f = $('fw').files[0];
+  if (!f) return msg('fmsg', 'choose a .bin file (build/esp32dif.bin)', false);
+  const before = last && last.version + last.ota.running;
+  const x = new XMLHttpRequest();
+  $('upload').disabled = true;
+  $('prog').hidden = false;
+  x.upload.onprogress = e => { $('prog').value = e.loaded / e.total; };
+  x.onload = () => {
+    if (x.status !== 200) {
+      $('upload').disabled = false;
+      return msg('fmsg', x.responseText || 'upload failed', false);
+    }
+    msg('fmsg', x.responseText + '...', true);
+    const poll = setInterval(async () => {
+      try {
+        const s = JSON.parse(await call('/api/status'));
+        if (s.version + s.ota.running !== before) {
+          clearInterval(poll);
+          render(s);
+          $('upload').disabled = false;
+          msg('fmsg', `running ${s.version} on ${s.ota.running}; it is marked valid after 60 s, a reset before that rolls back`, true);
+        }
+      } catch (e) {}
+    }, 3000);
+  };
+  x.onerror = () => { $('upload').disabled = false; msg('fmsg', 'upload failed: connection lost', false); };
+  x.open('POST', '/api/update');
+  x.setRequestHeader('Content-Type', 'application/octet-stream');
+  x.send(f);
+};
+
+$('reboot').onclick = async () => {
+  if (!confirm('Reboot the device?')) return;
+  try { msg('fmsg', await call('/api/reboot', ''), true); } catch (e) { msg('fmsg', e.message, false); }
+};
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

@@ -1,140 +1,115 @@
-# esp32c5
+# esp32dif
 
-ESP32-C5-DevKitC-1 firmware (ESP-IDF 6.1): on-board RGB LED, 0.96" SSD1306 I2C OLED, interactive shell on USB-Serial-JTAG.
+Wi-Fi to S/PDIF receiver. The PC sends audio over Wi-Fi, and an ESP32-C5-DevKitC-1 plays it on a PiFi Digi+ (WM8804) S/PDIF board.
 
-## Build & run
+- Lossless 16/24-bit PCM, 32–192 kHz, bit-perfect when PipeWire does not change the audio.
+- Web UI, telnet and USB shell for setup and diagnostics.
+- Firmware updates over Wi-Fi (OTA) with automatic rollback.
+- Status on a small OLED screen.
+
+Firmware: ESP-IDF 6.1. Technical details: [docs/internals.md](docs/internals.md). Digi+ bring-up notes: [docs/digi-bringup.md](docs/digi-bringup.md).
+
+## Build and flash
 
 ```sh
 make build
-make flash-monitor              # TTY_PORT=/dev/ttyACM0 by default
+make flash-monitor   # first time, over USB; TTY_PORT=/dev/ttyACM0 by default
+make ota             # later, over Wi-Fi; ESP_HOST=esp32dif.local, ESP_PASSWORD=esp32dif-admin by default
 ```
 
-Plug into the board's **USB** port (USB-Serial-JTAG, `/dev/ttyACM0`), not **UART** (USB-UART bridge, `/dev/ttyUSB0`, no console). Settings live in `sdkconfig.defaults`; `sdkconfig` is generated from it (`rm sdkconfig && idf.py set-target esp32c5` to regenerate).
+Use the board's **USB** port (`/dev/ttyACM0`), not **UART** (`/dev/ttyUSB0` has no console).
 
-## OLED wiring
+Build settings are in `sdkconfig.defaults`. To create `sdkconfig` again: `rm sdkconfig && idf.py set-target esp32c5`.
 
-0.96" 128x64 SSD1306 I2C module (4 pins: GND, VCC, SCL, SDA). All four wires go to header **J1**, the header with `3V3` at pin 1 and `RST` at pin 2 (pin numbers per the [DevKitC-1 user guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html)):
+## First setup
 
-| OLED pin | DevKitC-1 pin | Silkscreen | Signal |
-|---|---|---|---|
-| GND | J1 pin 15 | `G` | ground |
-| VCC | J1 pin 1 | `3V3` | 3.3 V |
-| SCL | J1 pin 10 | `9` | GPIO9, I2C SCL |
-| SDA | J1 pin 9 | `8` | GPIO8, I2C SDA |
+1. Flash the board over USB.
+2. With no saved Wi-Fi, the board starts its own Wi-Fi network (access point) `esp32dif`. The password is on the OLED (default `esp32dif-admin`).
+3. Join it from a phone or PC and open `http://192.168.4.1`. Log in as `admin` with the same password.
+4. Pick your Wi-Fi network and press **Connect**. The board saves it after it gets an IP address.
+5. Open `http://esp32dif.local` from your home network. The board's access point turns off 2 minutes after the connection works.
 
-```
-J1 pin  silkscreen          OLED
-  1     3V3  ────────────── VCC
-  2     RST
-  3     2
-  4     3
-  5     0
-  6     1
-  7     6
-  8     7
-  9     8    ────────────── SDA
- 10     9    ────────────── SCL
- 11     10
- 12     26
- 13     25
- 14     5V
- 15     G    ────────────── GND
- 16     NC
-```
+On the USB shell you can do the same with `wifi connect <ssid> <password>`.
 
-- Use 3V3, not 5V: most modules accept 5 V, but their pull-ups would then pull SDA/SCL to 5 V.
-- Most modules have I2C pull-ups on board; the internal ones are enabled too.
-- Address 0x3C. Modules with the address jumper moved are 0x3D.
-- Address and height (128x32 for 0.91" modules): `idf.py menuconfig` → Board OLED. Pins: → Board I2C bus (shared with the Digi+).
-- No display found at boot: logged as a warning, the board runs without it, `oled status` shows `not found`.
+## Access and settings
 
-## Digi+ wiring (WM8804 S/PDIF HAT)
+One password protects the web UI, telnet, the board's access point and audio senders. The USB shell has no password.
 
-PiFi Digi+ 1.0, a HiFiBerry Digi+ clone: one WM8804 S/PDIF transmitter, I2S audio plus I2C control. HAT pins below are the physical pins on its 40-pin Raspberry Pi header.
+| Way | How |
+|---|---|
+| Web UI | `http://esp32dif.local` (or `http://192.168.4.1` on the access point), user `admin`. Status, Wi-Fi, hostname, password, firmware upload, reboot. |
+| Telnet | `telnet esp32dif.local`. Same commands as USB, one session at a time, logout after 10 minutes without input. |
+| USB | `make monitor` |
 
-| HAT pin | Pi function | DevKitC-1 pin | Silkscreen | Signal |
-|---|---|---|---|---|
-| 2 | 5V | J1 pin 14 | `5V` | 5 V, the HAT makes its own 3.3 V |
-| 6 | GND | J1 pin 15 | `G` | ground |
-| 3 | GPIO2, I2C SDA | J1 pin 9 | `8` | GPIO8, I2C SDA, shared with the OLED |
-| 5 | GPIO3, I2C SCL | J1 pin 10 | `9` | GPIO9, I2C SCL, shared with the OLED |
-| 12 | GPIO18, PCM CLK | J3 pin 4 | `24` | GPIO24, I2S BCLK, HAT → ESP |
-| 35 | GPIO19, PCM FS | J3 pin 5 | `23` | GPIO23, I2S WS (LRCLK), HAT → ESP |
-| 40 | GPIO21, PCM DOUT | J3 pin 8 | `4` | GPIO4, I2S DOUT, ESP → HAT |
-| 39 | GND | J3 pin 1 | `G` | ground, next to the I2S wires |
+Change the hostname and password in the web UI, or with `config hostname <name>` and `config password <pw>`. The board saves them and uses them at once. The OLED always shows the current password, so you can't lock yourself out.
 
-- 3.3 V: with 5V connected, measure HAT pin 1 (3V3) against GND. About 0 V means the HAT has no regulator: wire J1 pin 1 (`3V3`) to HAT pin 1. An unpowered WM8804 clamps SDA low through its ESD diodes, and that also blocks the OLED.
-- I2C pull-ups: add 2.2 kΩ from SDA and SCL to 3V3. The HAT relies on the Pi's 1.8 kΩ pull-ups; the ESP32 internal ones (about 45 kΩ) leave SDA so weak that BCLK crosstalk corrupts 40–90% of transfers while the WM8804 runs, and can latch SDA low until the HAT is power cycled. SCL is driven push-pull (no device on the bus stretches the clock), which roughly halves the errors on its own.
-- I2C address 0x3B, so it can share the bus with the OLED (0x3C). The HAT straps the WM8804 to 2-wire software mode (GPO0/SWIFMODE tied to GND).
-- The WM8804 must be the I2S clock master: set `AIF_MS`, R28 (0x1C) bit 6. Its PLL runs from the on-board crystal. In slave mode its S/PDIF transmitter would need an MCLK input, and the header doesn't carry one. Configure the ESP32 I2S as `I2S_ROLE_SLAVE` in Philips format.
-- Check the device ID first: R0 = 0x05, R1 = 0x88. An RC network holds the WM8804 in reset at power-up, so the first accesses can NAK; retry after a short delay.
-- Datasheet: Cirrus Logic WM8804 Rev 4.5.
-- Pins, address, crystal: `idf.py menuconfig` → Board Digi+ (WM8804).
-
-## Digi+
-
-Bring-up findings, I2C noise measurements and a PCB checklist: [docs/digi-bringup.md](docs/digi-bringup.md).
-
-At boot the firmware looks for the WM8804 at 0x3B for 0.5 s, checks its id (0x8805), resets it and starts it at 44.1 kHz: WM8804 PLL from the crystal, WM8804 as I2S clock master (BCLK 64 fs), ESP32 I2S0 as slave sending 32-bit slots (the WM8804 takes 24 bits), S/PDIF TX fed from the audio interface. Not found at boot: logged as a warning, `digi probe` retries. If the WM8804 doesn't answer on I2C but still clocks from an earlier setup (the ESP32 was reset, the WM8804 kept power), I2S starts anyway at the measured LRCLK rate, so audio plays. Silent at boot; menuconfig → Board Digi+ → Test tone at boot sets a tone (Hz, 0 = off). `digi tone` works anytime.
-
-`digi probe` checks the connection step by step:
-
-| Row | How | What it proves |
-|---|---|---|
-| lines | PCNT counts edges for 250 ms on BCLK, LRCLK (with and without a 1 µs glitch filter), SDA, SCL and DOUT released with a pull-down, before touching the chip | BCLK running = WM8804 powered and configured; DOUT silent = its wire goes to an input, not swapped with LRCLK |
-| i2c | ACK at 0x3B, id 0x8805, revision | 3V3, GND, SDA, SCL |
-| noise | 200 reads of R1 while the WM8804 drives BCLK/LRCLK | I2C survives the I2S clocks |
-| bclk / lrclk | after a restart: rate and 64 × rate within 2000 ppm | HAT pins 12 and 35, PLL settings |
-| crystal | config × measured BCLK / expected BCLK | crystal matches the config |
-| glitches | unfiltered minus filtered LRCLK edges | the LRCLK wire is clean |
-
-`digi spdif` checks the S/PDIF output itself: wire WM8804 pin 17 (TX0) or the optical transmitter's data input to J3 pin 9 (GPIO5, menuconfig → Board Digi+ → S/PDIF monitor). It counts rising edges with silence (32 × fs expected) and with a 440 Hz tone at 10%, then captures about 12 ms of the stream with RMT at 80 MHz and decodes it on the chip: biphase-mark cells, B/M/W preambles, parity, validity, the first 5 channel status bytes and the left/right samples. It reports the sample rate from the bit timing, the channel status (consumer, PCM, rate code), and the decoded tone's frequency and peak level.
-
-`digi trim <ppm>` trims the WM8804 PLL fraction (±1000 ppm) and measures BCLK over 1 s. `digi trimtest <ppm>` checks trim accuracy, then compares S/PDIF captures right after trim steps against no-write and same-value-rewrite controls; `-w <s>` then toggles ±ppm for listening. Results: [docs/digi-bringup.md](docs/digi-bringup.md#pll-trim-digi-trim-digi-trimtest).
-
-`digi decode` decodes any S/PDIF source on GPIO5 (for example another player wired to the same node) without checking it against the WM8804 setup, so two sources can be compared field by field. A source must share GND with the ESP32.
-
-The data line (GPIO4 → HAT pin 40) has no direct readback: play `digi tone 440` and listen on the S/PDIF output. With no ACK the probe prints the idle SDA/SCL levels; a line held LOW means a device on the bus is clamping it.
-
-Every WM8804 configuration starts with a software reset (retried up to 20 times): the reset stops BCLK/LRCLK, so the rest of the writes run on a quiet bus.
-
-Swapped WS and DOUT wires: the ESP32 DOUT output fights the WM8804 LRCLK output. Symptoms: I2C NACKs and corrupted reads while the clocks run, SDA stuck low until the HAT is power cycled, LRCLK reading as noise (GPIO23 then sits on the floating DIN line), `DOUT released` showing 48000 edges/s. Fix the wires or swap the pins in menuconfig.
-
-At boot the shared I2C bus is recovered first: if SDA is held low, SCL is clocked up to 9 times and a STOP is sent.
+The password travels as plain text over HTTP and telnet. This is fine on a home network, but not on networks you don't trust.
 
 ## Wi-Fi
 
-`wifi connect <ssid> [password]` saves the network to NVS once it gets an IP; the board joins it on every boot. Reconnects back off after 3 quick retries: 5, 10, 20, 40, then every 60 s. Band `auto` (default) prefers a 5 GHz AP within 20 dB of the best 2.4 GHz one (menuconfig → Board network); `-b 5` or `-b 2.4` forces a band. Power save is off for low latency. The board takes its IP from DHCP and answers as `spdif.local` over mDNS.
+- The board connects to the saved network at every boot. If the connection drops, it tries again: 3 times at once, then after 5, 10, 20 and 40 s, then every 60 s.
+- Band `auto` (default) prefers 5 GHz. Use `wifi connect -b 5` or `-b 2.4` to force a band.
+- Power save is off, for low latency.
+- The board gets its IP address from DHCP and answers as `<hostname>.local` (mDNS).
+- **Access point:** the board starts its own network (named after the hostname, WPA2, the device password, `192.168.4.1`) when no network is saved, after `wifi disconnect`, or after 60 s without an IP address. It turns off 2 minutes after the home connection works again.
 
-## Wi-Fi audio (RTP)
+## Firmware updates (OTA)
 
-The PC sends uncompressed PCM over RTP; the board plays it on the Digi+.
+`make ota`, or upload `build/esp32dif.bin` in the web UI. The board has two firmware slots. A new firmware is confirmed 60 s after it starts. If the board resets before that, it starts the old firmware again. `ota status` shows both slots; `ota rollback` goes back to the old firmware.
+
+The first flash with this partition layout must be over USB (`make flash`). The saved Wi-Fi is kept.
+
+If you rename the project, flash over USB too: OTA accepts only firmware with the same project name.
+
+## Playing audio from the PC
+
+The PC runs `tools/esp32dif-sink`. It adds an output device "S/PDIF over Wi-Fi" to PipeWire. Select it in the sound settings, or play a file with `pw-play --target=spdif-rtp file.wav`.
 
 ```sh
-tools/spdif-sink                       # spdif.local, 48000 Hz, S24BE
-tools/spdif-sink spdif.local 44100 S16BE
+tools/esp32dif-sink                              # esp32dif.local, 48000 Hz, S24BE
+tools/esp32dif-sink esp32dif.local 44100 S24BE   # host, rate, format
 ```
 
-The script resolves `spdif.local` and runs a PipeWire client with `module-rtp-sink` (unicast to UDP 5004) and `module-rtp-sap` (announces the stream format to the board on UDP 9875). It adds an output device "S/PDIF over Wi-Fi"; pick it in the sound settings or `pw-play --target=spdif-rtp file.wav`. The node must be `media.class = "Audio/Sink"`: as a plain stream, WirePlumber links the microphone into it.
+- **Password:** every 10 s the script logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the script prints an error and doesn't create the device.
+- **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the script follows it.
+- **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
 
-The script runs until stopped. It waits until the board resolves and answers ping, pings it every 10 s, and removes the sink after 3 misses (`SPDIF_CHECK_S`, `SPDIF_MISSES`), so the device disappears ~30 s after the board goes offline and returns ~10 s after it's back. If the board's DHCP address changes, the sink follows it. To run it as a user service that starts with PipeWire, install the package (below) or link it from the checkout:
+### Run it as a service
+
+Install the package (below), or link the files from this folder:
 
 ```sh
-ln -s "$PWD/tools/spdif-sink" ~/.local/bin/spdif-sink
-systemctl --user link "$PWD/tools/spdif-sink.service"
-systemctl --user enable --now spdif-sink
-journalctl --user -u spdif-sink -f
+ln -s "$PWD/tools/esp32dif-sink" ~/.local/bin/esp32dif-sink
+systemctl --user link "$PWD/tools/esp32dif-sink.service"
+systemctl --user enable --now esp32dif-sink
+journalctl --user -u esp32dif-sink -f
 ```
 
-The service reads `~/.config/spdif-sink.conf` if it exists (`SPDIF_HOST`, `SPDIF_RATE`, `SPDIF_FORMAT`, plus the `SPDIF_*` settings above), e.g. `SPDIF_RATE=44100`; apply with `systemctl --user restart spdif-sink`.
+Settings go in `~/.config/esp32dif-sink.conf`, for example:
+
+```sh
+SPDIF_HOST=esp32dif.local
+SPDIF_RATE=44100
+SPDIF_FORMAT=S24BE
+SPDIF_PASSWORD=esp32dif-admin
+```
+
+Run `chmod 600` on this file, because it has the password. Apply changes with `systemctl --user restart esp32dif-sink`. When you change the board's hostname or password, change them here too.
+
+Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (10), `SPDIF_MISSES` (3).
 
 ### Package
 
-`omnipackage build --distros opensuse_tumbleweed` builds an RPM, DEB or pacman package of the script and the unit (config in `.omnipackage/`). It depends on `pipewire`, `ping` and `nss-mdns`, and enables the service for every user: a user preset on RPM, `deb-systemd-helper` on Debian, a `pipewire.service.wants` symlink on Arch. It starts at the next login, or now with `systemctl --user daemon-reload && systemctl --user start spdif-sink`. To opt out: `systemctl --user mask spdif-sink`.
+`omnipackage build --distros opensuse_tumbleweed` builds an RPM, DEB or pacman package with the script and the service (config in `.omnipackage/`). It needs `pipewire`, `curl` and `nss-mdns`. The service is enabled for all users and starts at the next login. To start it now: `systemctl --user daemon-reload && systemctl --user start esp32dif-sink`. To turn it off for your user: `systemctl --user mask esp32dif-sink`.
 
-Limits: one fixed format, and PipeWire doesn't know the board's 250 ms buffer, so video players can't compensate for it.
+### Sound quality
 
-Bit-perfect needs the sink at 100 % volume, no other stream mixed in, and content at the sink's rate with the PipeWire graph allowed to run at it (`default.clock.allowed-rates = [ 44100 48000 ]`; the stock setting is 48000 only). For 44.1 kHz music: `tools/spdif-sink spdif.local 44100 S24BE`. Measured with `digi decode -d` (24-bit noise and −3 dBFS sines, compared with the file):
+For bit-perfect output:
+- set the device volume to 100 %,
+- play nothing else at the same time,
+- use the same rate in the file, the script and the PipeWire graph. The default PipeWire graph runs only at 48 kHz. Add `default.clock.allowed-rates = [ 44100 48000 ]` to allow 44.1 kHz too, then run the script with `44100`.
+
+Measured with `digi decode -d` (24-bit noise and −3 dBFS sines, compared with the file):
 
 | Path | Result |
 |---|---|
@@ -143,118 +118,111 @@ Bit-perfect needs the sink at 100 % volume, no other stream mixed in, and conten
 | 44.1 kHz file → 44.1 kHz graph and sink | bit-perfect (270/270 frames) |
 | 44.1 kHz → 48 kHz (resampled), 997 Hz / 15 kHz | SINAD 138.1 / 138.8 dB, error −144 dBFS |
 | 48 kHz → 44.1 kHz (resampled), 15 kHz | SINAD 139.6 dB |
-| native, 997 Hz (24-bit floor) | SINAD 143 dB |
+| native, 997 Hz (24-bit limit) | SINAD 143 dB |
 
-PLL trimming only changes the clock (bit-perfect results above were taken with the loop running); PipeWire's resampler error sits at the 24-bit floor.
+How it works:
+- The board plays a stream only when it has a matching SAP announcement (L16 or L24 stereo). It switches the WM8804 to the announced rate.
+- The buffer adds 250 ms of latency. Video players don't know about it, so video and sound can be out of sync. The buffer is in PSRAM (1152 KB, 4 s at 48 kHz 24-bit), or 64 KB of internal RAM without PSRAM.
+- The board slowly adjusts its clock to the PC's clock, so the buffer never runs empty or full. This doesn't change the audio data.
+- `rtp status` shows senders, format, lost packets, jitter, buffer level, underruns and clock adjustment.
 
-- PC firewall: allow mDNS (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `--reload`). Without it `spdif.local` doesn't resolve; pass the IP instead.
-- The board plays only streams with a matching SAP announcement (L16 or L24 stereo), and switches the WM8804 to the announced rate.
-- Buffer: target 250 ms (playback latency), in PSRAM: 1152 KB, 4 s at 48 kHz L24. Without PSRAM 64 KB of internal RAM. menuconfig → Board RTP receiver.
-- Timeline from RTP timestamps: a timestamp gap (lost packets, sender skip) becomes silence, so the level holds; a jump past the target (PipeWire re-anchoring its clock) rebases without silence. After an underrun, audio that arrives late is dropped, so the level recovers at once instead of rebuffering.
-- Drift: a PI loop holds the buffer level (EMA of each second's peak, which Wi-Fi bursts can't push up) at target. It trims the WM8804 PLL (bit-perfect), at most once per 10 s in ≥ 5 ppm steps, clamps changes of K bits 21-16 to one per minute (those glitch, see [docs/digi-bringup.md](docs/digi-bringup.md#pll-trim-digi-trim-digi-trimtest)), and rewrites all K bytes every minute. Without I2C (3 failed writes, or audio started without I2C) it repeats or drops single frames instead, and retries the PLL every 5 min.
-- `rtp status`: source, SAP session, format, loss, jitter, longest gap, timestamp rebases, buffer level and target, underruns, late audio dropped, PLL trim, sender clock offset, sample slip.
-- PC: rtp-sink stamps packets with its driver's clock position. When a client links the sink with an ALSA device (the Plasma applet's level meters do), PipeWire moves the sink to that device's driver: the RTP timestamps jump, rtp-sink resyncs and drops audio (an audible stall), and waking a suspended device stalls the graph for up to 230 ms more. `spdif-sink` sets `node.group = "pipewire.dummy"`, which keeps the sink on the Dummy-Driver. The Plasma applet lists the sink only with "Show virtual devices" on.
+## Wiring
 
-## Hardware
+### Pins
 
 | Function | GPIO | Header |
 |---|---|---|
 | RGB LED (WS2812) | 27 | J3 pin 7 |
-| OLED SDA / SCL | 8 / 9 | J1 pin 9 / 10 |
+| OLED and Digi+ I2C SDA / SCL | 8 / 9 | J1 pin 9 / 10 |
 | Digi+ I2S BCLK / WS / DOUT | 24 / 23 / 4 | J3 pin 4 / 5 / 8 |
+| S/PDIF monitor (optional, for `digi spdif`) | 5 | J3 pin 9 |
 | BOOT button | 28 | J3 pin 11 |
 | USB D- / D+ | 13 / 14 | J3 pin 14 / 13 |
 | UART0 TX / RX | 11 / 12 | J3 pin 2 / 3 |
 
-Avoid for new wiring: strapping pins 2, 3, 7, 25, 26, 27, 28; flash/PSRAM 16–22 (and 15 on PSRAM modules); 0/1 if a 32 kHz crystal is fitted.
+Don't use for new wiring: strapping pins 2, 3, 7, 25, 26, 27, 28; flash/PSRAM pins 16–22 (and 15 on PSRAM modules); 0 and 1 if a 32 kHz crystal is fitted.
 
-## RGB LED
+Pins and I2C addresses can be changed in `idf.py menuconfig` (Board OLED, Board I2C bus, Board Digi+, Board LED).
 
-Off by default. `led color|blink|breathe|rainbow|off` switch to manual mode; `led auto` returns to the default pattern. Pin: `idf.py menuconfig` → Board LED. Settings are RAM-only.
+### OLED
 
-## OLED
+0.96" 128x64 SSD1306 I2C module. All four wires go to header **J1** (the header with `3V3` at pin 1, see the [DevKitC-1 user guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html)):
 
-Shows a status screen by default, refreshed every second:
+| OLED pin | DevKitC-1 pin | Label on board |
+|---|---|---|
+| GND | J1 pin 15 | `G` |
+| VCC | J1 pin 1 | `3V3` |
+| SCL | J1 pin 10 | `9` |
+| SDA | J1 pin 9 | `8` |
+
+- Use 3V3, not 5V. With 5V the module's pull-ups would pull SDA/SCL to 5 V.
+- I2C address 0x3C (0x3D if the address jumper is moved). For 0.91" 128x32 modules, change the height in menuconfig.
+- The board also works without the display.
+
+### Digi+ (WM8804 S/PDIF HAT)
+
+PiFi Digi+ 1.0, a HiFiBerry Digi+ clone. HAT pins are the physical pins of its 40-pin Raspberry Pi header.
+
+| HAT pin | DevKitC-1 pin | Label on board | Signal |
+|---|---|---|---|
+| 2 | J1 pin 14 | `5V` | 5 V (the HAT makes its own 3.3 V) |
+| 6 | J1 pin 15 | `G` | ground |
+| 3 | J1 pin 9 | `8` | I2C SDA, shared with the OLED |
+| 5 | J1 pin 10 | `9` | I2C SCL, shared with the OLED |
+| 12 | J3 pin 4 | `24` | I2S BCLK, HAT → ESP |
+| 35 | J3 pin 5 | `23` | I2S WS (LRCLK), HAT → ESP |
+| 40 | J3 pin 8 | `4` | I2S DOUT, ESP → HAT |
+| 39 | J3 pin 1 | `G` | ground, next to the I2S wires |
+
+- **Add 2.2 kΩ pull-ups** from SDA and SCL to 3V3. Without them, I2C fails while audio plays.
+- Check that HAT pin 1 has 3.3 V. If it shows about 0 V, connect J1 pin 1 (`3V3`) to HAT pin 1.
+- Run `digi probe` to check the wiring step by step. More notes: [docs/internals.md](docs/internals.md#digi-wiring-notes).
+
+## OLED screen
 
 ```
-48kHz 24-bit
-rtp 102ms buf
-192.168.0.21
-up 0d 01:02:03
-led off
-heap 312 KB free
+48kHz 24-bit         format
+rtp 102ms buf        source: rtp, tone, idle; noI2C = no I2C to the WM8804
+192.168.0.21         IP address or Wi-Fi state
+esp32dif.local       hostname
+AP off               board's access point: off, or on with number of clients
+pw esp32dif-admin    password (first 18 characters)
+up 0d 01:02:03       uptime
+heap 312 KB free     free memory
 ```
 
-Rows: Digi+ format; source (`tone …`, `rtp <ms> buf`, `rtp buffering`, `idle`; `noI2C` when audio runs without I2C; `S/PDIF off` / `no WM8804` without the chip); IP address or Wi-Fi state; uptime. LED and heap rows only on 128x64.
+On 128x32 displays: format, source, IP address, password.
 
-Text: 5x7 font, 21 columns × 8 rows (4 on 128x32). `oled print|clear` switch to manual mode; `oled auto` returns to the status screen. Settings are RAM-only.
+## Shell commands
 
-## Shell
+The same commands work on USB and telnet. Line editing, history, Tab completion and `help [cmd]` are available.
 
-Built on ESP-IDF `esp_console`: line editing, history, Tab completion, `help [cmd]`.
-
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `sysinfo` | chip, revision, cores, features, flash, MAC addresses |
-| `version` | app version, ESP-IDF version, build time, ELF SHA |
-| `uptime` | time since boot, last reset reason |
-| `reboot [-d ms]` | restart the chip |
-| `free [-h]` | heap per memory region |
-| `ps` | FreeRTOS tasks: state, priority, core, stack high-water mark, CPU % since boot |
-| `led status` | mode, effect, color, period, brightness |
-| `led color <color>` | solid color; `<color>` = preset name, `#rrggbb` or `r,g,b` |
-| `led blink\|breathe <color> [-p ms]` | blink (default 500 ms) or fade (default 3000 ms) |
-| `led rainbow [-p ms]` | hue cycle, default 5000 ms |
-| `led off` / `led auto` | turn off / back to the default (off) |
-| `led brightness <0-100>` | global brightness, default 20 |
-| `led presets` | list color names and effects |
-| `wifi scan` | nearby networks: ssid, bssid, channel, band, rssi, auth |
-| `wifi connect [ssid] [password] [-b 2.4\|5\|auto] [-n] [-t s]` | join; saved once it gets an IP; no ssid = saved network |
-| `wifi status` / `saved [-p]` / `forget` / `disconnect` | state, signal, IP / saved network / erase it / leave |
-| `rtp status` / `rtp reset` | RTP receiver stats / clear them and rebuffer |
-| `oled status` | display found or not, pins, address, mode, power, contrast |
-| `oled print <row> <text>` | write text to a row (0-based), longer text is cut at 21 chars |
-| `oled clear` | blank the screen |
-| `oled auto` | back to the status screen |
-| `oled on` / `oled off` | display on / sleep |
-| `oled contrast <0-255>` | contrast, default 127 |
-| `digi status` | chip found or not, crystal, rate, pins, tone |
-| `digi probe` | I2C, chip id, crystal and I2S clock check (see Digi+) |
-| `digi reg <reg> [value]` | read a WM8804 register, or write it; only R0–R2 and R11–R17 read back |
+| `config show [-p]` | hostname, password (hidden without `-p`), access point |
+| `config hostname <name>` | set hostname: a-z, 0-9, `-`, up to 32 characters |
+| `config password <pw>` | set password: 8–63 characters |
+| `wifi scan` | list nearby networks |
+| `wifi connect [ssid] [password] [-b 2.4\|5\|auto] [-n] [-t s]` | join a network; it is saved after it gets an IP (`-n`: don't save). Without ssid: the saved network |
+| `wifi status` | connection, signal, IP address, access point |
+| `wifi saved [-p]` / `forget` / `disconnect` | show / delete the saved network / disconnect |
+| `rtp status` / `rtp reset` | audio receiver statistics / reset them |
+| `ota status` / `ota rollback` | firmware slots / go back to the old firmware |
+| `digi status` | WM8804 found, crystal, rate, pins, tone |
+| `digi probe` | check the Digi+ wiring step by step |
 | `digi rate <hz>` | 32000, 44100 (default), 48000, 88200, 96000, 176400, 192000 |
-| `digi tone <hz> [-l 0-100]` | sine on both channels, level in % of full scale, default 10 |
-| `digi stop` | stop the tone |
-| `digi spdif` | capture and decode the S/PDIF stream on the monitor GPIO: rate, frames, channel status, tone frequency and level |
-| `digi decode` | decode any S/PDIF stream on the monitor GPIO, no WM8804 needed: edges, levels with pulls, cell widths, rate, channel status, per-channel tone and level, sample bits; `-d` dumps every captured frame as hex, with `break` where sync was lost |
+| `digi tone <hz> [-l 0-100]` / `digi stop` | play a test sine (level in %, default 10) / stop it |
+| `digi reg <reg> [value]` | read or write a WM8804 register |
+| `digi spdif` | check the S/PDIF output on the monitor pin |
+| `digi decode [-d]` | decode any S/PDIF signal on the monitor pin (`-d`: print all frames) |
+| `digi trim <ppm>` / `digi trimtest <ppm>` | adjust the WM8804 clock / test clock adjustment |
+| `oled status` / `on` / `off` / `contrast <0-255>` | display state / power / contrast |
+| `oled print <row> <text>` / `clear` / `auto` | write text / clear / back to the status screen |
+| `led color <color>` | color: name, `#rrggbb` or `r,g,b` (`led presets` lists names) |
+| `led blink\|breathe <color> [-p ms]` / `led rainbow [-p ms]` | effects |
+| `led off` / `led auto` / `led brightness <0-100>` / `led status` | LED control (off by default) |
+| `sysinfo` / `version` / `uptime` | chip, firmware and uptime information |
+| `free [-h]` / `ps` | memory / tasks |
+| `reboot [-d ms]` | restart |
 
-## Layout
-
-```
-main/main.c              led_init → oled_init → digi_init → net_init → rtp_init → shell_init → register command groups → shell_start
-main/status_led.c        default LED pattern (auto mode)
-main/status_oled.c       status screen (auto mode)
-components/led/          RGB LED driver (espressif/led_strip over RMT), effects, color presets
-components/cmd_led/      led
-components/oled/         SSD1306 over I2C (esp_lcd), text framebuffer, 5x7 font, refresh task
-components/cmd_oled/     oled
-components/i2c_bus/      shared I2C master bus (OLED, WM8804), bus recovery at start
-components/digi/         WM8804 over I2C (PLL, clock master, S/PDIF TX), I2S slave, test tone, PCNT clock probe
-components/cmd_digi/     digi
-components/net/          Wi-Fi client: NVS-saved network, reconnect backoff, 5 GHz preference, DHCP hostname, mDNS
-components/cmd_wifi/     wifi
-components/rtp/          RTP receiver, SAP/SDP parser, playback ring buffer feeding the Digi+
-components/cmd_rtp/      rtp
-tools/spdif-sink         PC side: PipeWire RTP sink + SAP announcement to the board, follows the board coming and going
-tools/spdif-sink.service systemd user unit for it
-components/shell/        REPL setup + helpers: shell_args_ok, shell_subcmd_run, shell_getc
-components/cmd_system/   sysinfo, version, uptime, reboot, free, ps
-docs/digi-bringup.md     Digi+ breadboard bring-up notes
-```
-
-## Adding commands
-
-Create `components/cmd_<feature>/` exposing `esp_err_t cmd_<feature>_register(void)`, register handlers with `esp_console_cmd_register()`, and call it from `main.c` before `shell_start()`.
-
-- Flags: an argtable struct + `shell_args_ok()` (see `reboot` in `cmd_sys.c`).
-- Subcommands (`foo bar ...`): a `shell_subcmd_t` table + `shell_subcmd_run()` (see `cmd_oled.c`).
-- Long-running loops: poll `shell_getc()` and stop on `SHELL_CTRL_C`.
+LED and OLED changes made with commands are not saved; they reset at reboot.

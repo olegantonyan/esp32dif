@@ -1,0 +1,13 @@
+menu "Board telnet"
+
+    config APP_TELNET_PORT
+        int "Port"
+        range 1 65535
+        default 23
+
+    config APP_TELNET_IDLE_S
+        int "Idle timeout (s), 0 to disable"
+        range 0 86400
+        default 600
+
+endmenu

@@ -11,6 +11,7 @@
 #include "soc/soc_caps.h"
 #include "shell.h"
 #include "net.h"
+#include "settings.h"
 #include "sdkconfig.h"
 #include "cmd_wifi.h"
 
@@ -216,7 +217,9 @@ static int cmd_status(int argc, char **argv)
         esp_netif_ip_info_t ip;
         esp_netif_dns_info_t dns;
         esp_netif_get_ip_info(net_sta(), &ip);
-        printf("ip         " IPSTR " (%s.local)\n", IP2STR(&ip.ip), CONFIG_APP_NET_HOSTNAME);
+        settings_t cfg;
+        settings_get(&cfg);
+        printf("ip         " IPSTR " (%s.local)\n", IP2STR(&ip.ip), cfg.hostname);
         printf("netmask    " IPSTR "\n", IP2STR(&ip.netmask));
         printf("gateway    " IPSTR "\n", IP2STR(&ip.gw));
         if (esp_netif_get_dns_info(net_sta(), ESP_NETIF_DNS_MAIN, &dns) == ESP_OK) {
@@ -229,6 +232,14 @@ static int cmd_status(int argc, char **argv)
     }
     net_saved_t saved;
     printf("saved      %s\n", net_saved(&saved) == ESP_OK ? saved.ssid : "none");
+    if (net_ap_active()) {
+        settings_t cfg;
+        settings_get(&cfg);
+        int n = net_ap_clients();
+        printf("ap         on, ssid '%s', 192.168.4.1, %d client%s\n", cfg.hostname, n, n == 1 ? "" : "s");
+    } else {
+        printf("ap         off, starts after %d s without an IP\n", CONFIG_APP_NET_AP_FALLBACK_S);
+    }
     return 0;
 }
 

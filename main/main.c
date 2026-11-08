@@ -1,5 +1,11 @@
 #include "esp_err.h"
 #include "esp_log.h"
+#include "settings.h"
+#include "ota.h"
+#include "cmd_ota.h"
+#include "cmd_config.h"
+#include "web.h"
+#include "telnet.h"
 #include "led.h"
 #include "oled.h"
 #include "shell.h"
@@ -19,6 +25,10 @@ static const char *TAG = "main";
 
 void app_main(void)
 {
+    ESP_ERROR_CHECK(settings_init());
+    if (ota_init() != ESP_OK) {
+        ESP_LOGE(TAG, "ota init failed, continuing without rollback protection");
+    }
     if (led_init() == ESP_OK) {
         led_set_auto(status_led_pattern);
     } else {
@@ -32,7 +42,8 @@ void app_main(void)
     if (digi_init() != ESP_OK) {
         ESP_LOGW(TAG, "digi not ready, continuing without it");
     }
-    if (net_init() != ESP_OK) {
+    bool net = net_init() == ESP_OK;
+    if (!net) {
         ESP_LOGE(TAG, "network failed to start, continuing without it");
     } else if (rtp_init() != ESP_OK) {
         ESP_LOGE(TAG, "rtp receiver failed to start, continuing without it");
@@ -44,5 +55,13 @@ void app_main(void)
     ESP_ERROR_CHECK(cmd_digi_register());
     ESP_ERROR_CHECK(cmd_wifi_register());
     ESP_ERROR_CHECK(cmd_rtp_register());
+    ESP_ERROR_CHECK(cmd_config_register());
+    ESP_ERROR_CHECK(cmd_ota_register());
+    if (net && web_start() != ESP_OK) {
+        ESP_LOGE(TAG, "web UI failed to start, continuing without it");
+    }
+    if (net && telnet_start() != ESP_OK) {
+        ESP_LOGE(TAG, "telnet failed to start, continuing without it");
+    }
     ESP_ERROR_CHECK(shell_start());
 }

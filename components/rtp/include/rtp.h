@@ -6,6 +6,7 @@
 
 #define RTP_MDNS_SERVICE "_spdif-rtp"
 #define RTP_MDNS_PROTO "_udp"
+#define RTP_LEASES 4
 
 typedef enum {
     RTP_PLAY_IDLE,
@@ -25,6 +26,11 @@ typedef struct {
     uint32_t origin_ip;
     int64_t seen_us;
 } rtp_session_t;
+
+typedef struct {
+    uint32_t ip;
+    int64_t until_us;
+} rtp_lease_t;
 
 typedef struct {
     bool active;
@@ -65,8 +71,12 @@ typedef struct {
     int32_t slip_ppb;
     uint32_t slipped;
     rtp_session_t session;
+    uint32_t denied;
+    int leases;
+    rtp_lease_t lease[RTP_LEASES];
 } rtp_stats_t;
 
 esp_err_t rtp_init(void);
 void rtp_get(rtp_stats_t *out);
 void rtp_reset(void);
+void rtp_allow(uint32_t ip);

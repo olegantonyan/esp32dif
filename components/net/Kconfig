@@ -2,11 +2,11 @@ menu "Board network"
 
     config APP_NET_HOSTNAME
         string "Hostname (DHCP and mDNS, <name>.local)"
-        default "spdif"
+        default "esp32dif"
 
     config APP_NET_INSTANCE
         string "mDNS instance name"
-        default "ESP32-C5 S/PDIF"
+        default "esp32dif S/PDIF receiver"
 
     config APP_NET_5G_PREFER_DB
         int "Prefer a 5 GHz AP within this many dB of the best 2.4 GHz one"
@@ -14,5 +14,20 @@ menu "Board network"
         default 20
         help
             Applies with band auto (the default) when one SSID is on both bands.
+
+    config APP_NET_AP_FALLBACK_S
+        int "Start the fallback AP after this many seconds without an IP (at once with no saved network)"
+        range 0 3600
+        default 60
+
+    config APP_NET_AP_LINGER_S
+        int "Stop the fallback AP once the client has kept its IP this many seconds"
+        range 0 3600
+        default 120
+
+    config APP_NET_AP_MAX_CONN
+        int "Fallback AP clients"
+        range 1 10
+        default 4
 
 endmenu

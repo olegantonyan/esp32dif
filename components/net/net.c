@@ -10,9 +10,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "nvs.h"
-#include "nvs_flash.h"
 #include "sdkconfig.h"
 #include "soc/soc_caps.h"
+#include "settings.h"
 #include "net.h"
 
 #define NET_ASSOCIATED BIT0
@@ -23,6 +23,11 @@ static const char *TAG = "net";
 
 static EventGroupHandle_t s_events;
 static esp_netif_t *s_sta;
+static esp_netif_t *s_ap;
+static esp_timer_handle_t s_ap_timer;
+static volatile bool s_ap_on;
+static bool s_had_ip;
+static int64_t s_since_us;
 static volatile bool s_reconnect;
 static volatile bool s_leaving;
 static volatile uint8_t s_last_reason;
@@ -102,7 +107,9 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         const ip_event_got_ip_t *e = data;
-        ESP_LOGI(TAG, "got ip " IPSTR ", %s.local", IP2STR(&e->ip_info.ip), CONFIG_APP_NET_HOSTNAME);
+        settings_t cfg;
+        settings_get(&cfg);
+        ESP_LOGI(TAG, "got ip " IPSTR ", %s.local", IP2STR(&e->ip_info.ip), cfg.hostname);
         s_retries = 0;
         xEventGroupSetBits(s_events, NET_GOT_IP);
         if (s_save_pending) {
@@ -119,26 +126,89 @@ static void on_shutdown(void)
     s_leaving = true;
 }
 
-static esp_err_t nvs_init(void)
+static wifi_band_mode_t current_band(void)
 {
-    esp_err_t err = nvs_flash_init();
-    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "nvs erase");
-        err = nvs_flash_init();
-    }
-    return err;
+    wifi_band_mode_t band = WIFI_BAND_MODE_AUTO;
+#if SOC_WIFI_SUPPORT_5G
+    esp_wifi_get_band_mode(&band);
+#endif
+    return band;
 }
 
-static esp_err_t mdns_start(void)
+static esp_err_t ap_configure(wifi_band_mode_t band)
+{
+    settings_t cfg;
+    settings_get(&cfg);
+    wifi_config_t wc = {
+        .ap = {
+            .ssid_len = strlen(cfg.hostname),
+            .channel = band == WIFI_BAND_MODE_5G_ONLY ? 36 : 1,
+            .max_connection = CONFIG_APP_NET_AP_MAX_CONN,
+            .authmode = WIFI_AUTH_WPA2_PSK,
+        },
+    };
+    memcpy(wc.ap.ssid, cfg.hostname, wc.ap.ssid_len);
+    strlcpy((char *)wc.ap.password, cfg.password, sizeof(wc.ap.password));
+    return esp_wifi_set_config(WIFI_IF_AP, &wc);
+}
+
+static void ap_set(bool on)
+{
+    esp_err_t err = esp_wifi_set_mode(on ? WIFI_MODE_APSTA : WIFI_MODE_STA);
+    if (err == ESP_OK && on) {
+        err = ap_configure(current_band());
+    }
+    static esp_err_t s_last_err;
+    if (err != ESP_OK) {
+        if (on) {
+            esp_wifi_set_mode(WIFI_MODE_STA);
+        }
+        if (err != s_last_err) {
+            ESP_LOGE(TAG, "fallback AP %s: %s", on ? "on" : "off", esp_err_to_name(err));
+        }
+        s_last_err = err;
+        return;
+    }
+    s_last_err = ESP_OK;
+    s_ap_on = on;
+    ESP_LOGI(TAG, "fallback AP %s", on ? "on, 192.168.4.1" : "off");
+}
+
+static void ap_check(void *arg)
+{
+    int64_t now = esp_timer_get_time();
+    bool ip = net_has_ip();
+    if (ip != s_had_ip) {
+        s_had_ip = ip;
+        s_since_us = now;
+    }
+    bool want = ip ? s_ap_on && now - s_since_us < CONFIG_APP_NET_AP_LINGER_S * 1000000LL
+                   : s_ap_on || !s_reconnect || now - s_since_us >= CONFIG_APP_NET_AP_FALLBACK_S * 1000000LL;
+    if (want != s_ap_on) {
+        ap_set(want);
+    }
+}
+
+static void on_settings(const settings_t *cfg)
+{
+    esp_netif_set_hostname(s_sta, cfg->hostname);
+    mdns_hostname_set(cfg->hostname);
+    if (s_ap_on) {
+        ap_configure(current_band());
+    }
+}
+
+static esp_err_t mdns_start(const char *hostname)
 {
     ESP_RETURN_ON_ERROR(mdns_init(), TAG, "mdns init");
-    ESP_RETURN_ON_ERROR(mdns_hostname_set(CONFIG_APP_NET_HOSTNAME), TAG, "mdns hostname");
+    ESP_RETURN_ON_ERROR(mdns_hostname_set(hostname), TAG, "mdns hostname");
     return mdns_instance_name_set(CONFIG_APP_NET_INSTANCE);
 }
 
 esp_err_t net_init(void)
 {
-    ESP_RETURN_ON_ERROR(nvs_init(), TAG, "nvs");
+    settings_t set;
+    settings_get(&set);
     s_events = xEventGroupCreate();
     ESP_RETURN_ON_FALSE(s_events, ESP_ERR_NO_MEM, TAG, "event group");
 
@@ -148,22 +218,27 @@ esp_err_t net_init(void)
 
     s_sta = esp_netif_create_default_wifi_sta();
     ESP_RETURN_ON_FALSE(s_sta, ESP_FAIL, TAG, "sta netif");
-    ESP_RETURN_ON_ERROR(esp_netif_set_hostname(s_sta, CONFIG_APP_NET_HOSTNAME), TAG, "hostname");
+    ESP_RETURN_ON_ERROR(esp_netif_set_hostname(s_sta, set.hostname), TAG, "hostname");
+    s_ap = esp_netif_create_default_wifi_ap();
+    ESP_RETURN_ON_FALSE(s_ap, ESP_FAIL, TAG, "ap netif");
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_RETURN_ON_ERROR(esp_wifi_init(&cfg), TAG, "wifi init");
     ESP_RETURN_ON_ERROR(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL, NULL), TAG, "wifi events");
     ESP_RETURN_ON_ERROR(esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, on_event, NULL, NULL), TAG, "ip events");
     ESP_RETURN_ON_ERROR(esp_wifi_set_storage(WIFI_STORAGE_RAM), TAG, "wifi storage");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_APSTA), TAG, "wifi mode");
+    ESP_RETURN_ON_ERROR(ap_configure(WIFI_BAND_MODE_AUTO), TAG, "ap config");
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "wifi mode");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start");
     ESP_RETURN_ON_ERROR(esp_wifi_set_ps(WIFI_PS_NONE), TAG, "power save");
-    ESP_RETURN_ON_ERROR(mdns_start(), TAG, "mdns");
+    ESP_RETURN_ON_ERROR(mdns_start(set.hostname), TAG, "mdns");
 
     esp_log_level_set("wifi", ESP_LOG_ERROR);
     ESP_RETURN_ON_ERROR(esp_register_shutdown_handler(on_shutdown), TAG, "shutdown handler");
     const esp_timer_create_args_t timer = { .callback = on_retry, .name = "wifi_retry" };
     ESP_RETURN_ON_ERROR(esp_timer_create(&timer, &s_retry_timer), TAG, "retry timer");
+    settings_on_change(on_settings);
 
     net_saved_t saved;
     if (net_saved(&saved) == ESP_OK) {
@@ -173,12 +248,31 @@ esp_err_t net_init(void)
             ESP_LOGE(TAG, "connect to saved network: %s", esp_err_to_name(err));
         }
     }
+    const esp_timer_create_args_t ap_timer = { .callback = ap_check, .name = "wifi_ap" };
+    ESP_RETURN_ON_ERROR(esp_timer_create(&ap_timer, &s_ap_timer), TAG, "ap timer");
+    ESP_RETURN_ON_ERROR(esp_timer_start_periodic(s_ap_timer, 1000000), TAG, "ap timer start");
     return ESP_OK;
 }
 
 esp_netif_t *net_sta(void)
 {
     return s_sta;
+}
+
+esp_netif_t *net_ap(void)
+{
+    return s_ap;
+}
+
+bool net_ap_active(void)
+{
+    return s_ap_on;
+}
+
+int net_ap_clients(void)
+{
+    wifi_sta_list_t list;
+    return s_ap_on && esp_wifi_ap_get_sta_list(&list) == ESP_OK ? list.num : 0;
 }
 
 esp_err_t net_connect(const char *ssid, const char *password, wifi_band_mode_t band, bool save)
@@ -197,6 +291,9 @@ esp_err_t net_connect(const char *ssid, const char *password, wifi_band_mode_t b
     if (password) {
         strlcpy((char *)cfg.sta.password, password, sizeof(cfg.sta.password));
         cfg.sta.threshold.authmode = WIFI_AUTH_WPA_PSK;
+    }
+    if (s_ap_on) {
+        ap_configure(band);
     }
 #if SOC_WIFI_SUPPORT_5G
     ESP_RETURN_ON_ERROR(esp_wifi_set_band_mode(band), TAG, "set band");

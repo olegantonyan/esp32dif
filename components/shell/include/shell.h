@@ -17,6 +17,7 @@ typedef struct {
 
 esp_err_t shell_init(void);
 esp_err_t shell_start(void);
+int shell_exec(const char *line);
 
 bool shell_args_ok(int argc, char **argv, void *argtable);
 int shell_subcmd_run(const char *cmd, const shell_subcmd_t *subs, size_t n, int argc, char **argv);

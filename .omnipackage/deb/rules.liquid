@@ -5,6 +5,6 @@ D = $(CURDIR)/debian/{{ package_name }}
 	dh $@
 
 override_dh_auto_install:
-	install -Dm755 tools/spdif-sink $(D)/usr/bin/spdif-sink
+	install -Dm755 tools/esp32dif-sink $(D)/usr/bin/esp32dif-sink
 	install -d $(D)/usr/lib/systemd/user
-	sed 's|%h/.local/bin/|/usr/bin/|' tools/spdif-sink.service > $(D)/usr/lib/systemd/user/spdif-sink.service
+	sed 's|%h/.local/bin/|/usr/bin/|' tools/esp32dif-sink.service > $(D)/usr/lib/systemd/user/esp32dif-sink.service

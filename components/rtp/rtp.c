@@ -43,6 +43,45 @@ static SemaphoreHandle_t s_lock;
 static rtp_stats_t s_stats;
 static track_t s_track;
 static rtp_session_t s_session;
+static rtp_lease_t s_leases[RTP_LEASES];
+static uint32_t s_denied;
+
+static bool allowed(uint32_t ip, int64_t now)
+{
+    for (int i = 0; i < RTP_LEASES; i++) {
+        if (s_leases[i].ip == ip && s_leases[i].until_us > now) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void rtp_allow(uint32_t ip)
+{
+    if (!s_lock) {
+        return;
+    }
+    int64_t now = esp_timer_get_time();
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    int slot = 0;
+    for (int i = 0; i < RTP_LEASES; i++) {
+        if (s_leases[i].ip == ip) {
+            slot = i;
+            break;
+        }
+        if (s_leases[i].until_us < s_leases[slot].until_us) {
+            slot = i;
+        }
+    }
+    if (s_leases[slot].ip != ip || s_leases[slot].until_us <= now) {
+        struct in_addr a = { .s_addr = ip };
+        char a_str[16];
+        inet_ntoa_r(a, a_str, sizeof(a_str));
+        ESP_LOGI(TAG, "sender %s allowed", a_str);
+    }
+    s_leases[slot] = (rtp_lease_t){ .ip = ip, .until_us = now + CONFIG_APP_RTP_LEASE_S * 1000000LL };
+    xSemaphoreGive(s_lock);
+}
 
 static void stream_start(const struct sockaddr_in *from, uint32_t ssrc, uint8_t pt, uint16_t seq, uint32_t ts, int64_t now)
 {
@@ -268,7 +307,9 @@ static void rtp_task(void *arg)
             }
             int64_t now = esp_timer_get_time();
             xSemaphoreTake(s_lock, portMAX_DELAY);
-            if (sock == socks.rtp) {
+            if (!allowed(from.sin_addr.s_addr, now)) {
+                s_denied++;
+            } else if (sock == socks.rtp) {
                 on_packet(buf, len, &from, now);
             } else {
                 on_sap(buf, len, &from, now);
@@ -327,6 +368,13 @@ void rtp_get(rtp_stats_t *out)
     xSemaphoreTake(s_lock, portMAX_DELAY);
     *out = s_stats;
     out->session = s_session;
+    out->denied = s_denied;
+    int64_t now = esp_timer_get_time();
+    for (int i = 0; i < RTP_LEASES; i++) {
+        if (s_leases[i].until_us > now) {
+            out->lease[out->leases++] = s_leases[i];
+        }
+    }
     xSemaphoreGive(s_lock);
     play_get(out);
 }

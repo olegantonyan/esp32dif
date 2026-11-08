@@ -6,6 +6,7 @@
 #include "lwip/inet.h"
 #include "sdkconfig.h"
 #include "rtp.h"
+#include "settings.h"
 #include "shell.h"
 #include "cmd_rtp.h"
 
@@ -42,14 +43,27 @@ static int cmd_status(int argc, char **argv)
     rtp_stats_t s;
     rtp_get(&s);
     int64_t now = esp_timer_get_time();
-    printf("listen   RTP UDP %d, SAP UDP %d, mDNS %s.%s on %s.local\n", CONFIG_APP_RTP_PORT, CONFIG_APP_RTP_SAP_PORT, RTP_MDNS_SERVICE, RTP_MDNS_PROTO, CONFIG_APP_NET_HOSTNAME);
+    settings_t cfg;
+    settings_get(&cfg);
+    printf("listen   RTP UDP %d, SAP UDP %d, mDNS %s.%s on %s.local\n", CONFIG_APP_RTP_PORT, CONFIG_APP_RTP_SAP_PORT, RTP_MDNS_SERVICE, RTP_MDNS_PROTO, cfg.hostname);
+    printf("senders  ");
+    if (!s.leases) {
+        printf("none allowed: tools/esp32dif-sink with SPDIF_PASSWORD gets a %d s lease", CONFIG_APP_RTP_LEASE_S);
+    }
+    for (int i = 0; i < s.leases; i++) {
+        struct in_addr a = { .s_addr = s.lease[i].ip };
+        char a_str[16];
+        inet_ntoa_r(a, a_str, sizeof(a_str));
+        printf("%s%s (%lld s left)", i ? ", " : "", a_str, (s.lease[i].until_us - now) / 1000000);
+    }
+    printf("; %lu packets denied\n", (unsigned long)s.denied);
     if (s.session.valid) {
         struct in_addr origin = { .s_addr = s.session.origin_ip };
         char origin_str[16];
         inet_ntoa_r(origin, origin_str, sizeof(origin_str));
         printf("session  '%s' %s/%lu/%u from %s, announced %lld s ago\n", s.session.name, s.session.encoding, (unsigned long)s.session.rate, s.session.channels, origin_str, (now - s.session.seen_us) / 1000000);
     } else {
-        printf("session  no SAP announcement: playback waits for one (tools/spdif-sink sends it)\n");
+        printf("session  no SAP announcement: playback waits for one (tools/esp32dif-sink sends it)\n");
     }
     if (!s.streams) {
         printf("stream   none yet\n");

@@ -1,0 +1,7 @@
+menu "Board settings"
+
+    config APP_DEFAULT_PASSWORD
+        string "Default password for the web UI, telnet, the fallback AP and RTP senders (8-63 characters)"
+        default "esp32dif-admin"
+
+endmenu

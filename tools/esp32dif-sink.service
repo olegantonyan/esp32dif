@@ -1,0 +1,13 @@
+[Unit]
+Description=S/PDIF over Wi-Fi sink (RTP to esp32dif)
+After=pipewire.service
+BindsTo=pipewire.service
+
+[Service]
+EnvironmentFile=-%h/.config/esp32dif-sink.conf
+ExecStart=%h/.local/bin/esp32dif-sink
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=pipewire.service

@@ -15,6 +15,9 @@ typedef struct {
 esp_err_t net_init(void);
 
 esp_netif_t *net_sta(void);
+esp_netif_t *net_ap(void);
+bool net_ap_active(void);
+int net_ap_clients(void);
 esp_err_t net_connect(const char *ssid, const char *password, wifi_band_mode_t band, bool save);
 void net_disconnect(void);
 esp_err_t net_saved(net_saved_t *out);

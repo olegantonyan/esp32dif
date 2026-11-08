@@ -1,15 +1,16 @@
 #!/bin/sh
-# Usage: tools/spdif-sink [host] [rate] [format]   e.g. tools/spdif-sink spdif.local 48000 S24BE
-# Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT (the service reads them from ~/.config/spdif-sink.conf)
+# Usage: tools/esp32dif-sink [host] [rate] [format]   e.g. tools/esp32dif-sink esp32dif.local 48000 S24BE
+# Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT, SPDIF_PASSWORD (the service reads them from ~/.config/esp32dif-sink.conf)
 set -u
 
-host=${1:-${SPDIF_HOST:-spdif.local}}
+host=${1:-${SPDIF_HOST:-esp32dif.local}}
 rate=${2:-${SPDIF_RATE:-48000}}
 format=${3:-${SPDIF_FORMAT:-S24BE}}
 port=${SPDIF_PORT:-5004}
 sap_port=${SPDIF_SAP_PORT:-9875}
 check_s=${SPDIF_CHECK_S:-10}
 misses=${SPDIF_MISSES:-3}
+password=${SPDIF_PASSWORD:-esp32dif-admin}
 
 conf=$(mktemp --suffix=.conf)
 pid=
@@ -24,7 +25,20 @@ trap 'stop_sink; rm -f "$conf"' EXIT
 trap 'exit 0' INT TERM
 
 resolve() { getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }'; }
-alive() { ping -c 1 -W 2 "$1" >/dev/null 2>&1; }
+lease() {
+    printf 'user = "admin:%s"\n' "$(printf %s "$password" | sed 's/[\\"]/\\&/g')" | curl -s -o /dev/null -w '%{http_code}' -m 3 -K - -X POST "http://$1/api/rtp/allow"
+}
+denied=
+alive() {
+    code=$(lease "$1")
+    if [ "$code" = 401 ]; then
+        [ -n "$denied" ] || echo "esp32dif-sink: $host rejected the password, set SPDIF_PASSWORD"
+        denied=1
+    else
+        denied=
+    fi
+    [ "$code" = 200 ]
+}
 nap() { sleep "$check_s" & wait $!; }
 
 write_conf() {
@@ -70,14 +84,14 @@ waiting=
 while :; do
     ip=$(resolve)
     if [ -z "$ip" ] || ! alive "$ip"; then
-        [ -n "$waiting" ] || echo "spdif-sink: waiting for $host (mDNS + ping every $check_s s)"
+        [ -n "$waiting" ] || echo "esp32dif-sink: waiting for $host (mDNS + HTTP every $check_s s)"
         waiting=1
         nap
         continue
     fi
     waiting=
     write_conf "$ip"
-    echo "spdif-sink: $host is $ip, sending $format $rate Hz to UDP $port"
+    echo "esp32dif-sink: $host is $ip, sending $format $rate Hz to UDP $port"
     PIPEWIRE_DEBUG=${PIPEWIRE_DEBUG:-W,mod.rtp-sap:E} pipewire -c "$conf" &
     pid=$!
     missed=0
@@ -85,12 +99,12 @@ while :; do
         nap
         if alive "$ip"; then missed=0; else missed=$((missed + 1)); fi
         if [ "$missed" -ge "$misses" ]; then
-            echo "spdif-sink: $host stopped answering, removing the sink"
+            echo "esp32dif-sink: $host stopped answering, removing the sink"
             break
         fi
         now=$(resolve)
         if [ -n "$now" ] && [ "$now" != "$ip" ]; then
-            echo "spdif-sink: $host moved to $now"
+            echo "esp32dif-sink: $host moved to $now"
             break
         fi
     done
