@@ -81,8 +81,8 @@ components/ota/             OTA writes, image checks, 60 s mark-valid timer, rol
 components/shell/           USB console, shell_exec (one command at a time), helpers
 components/cmd_*/           shell commands: system, wifi, rtp, config, ota, oled, led, digi
 partitions.csv              nvs, otadata, phy_init, two 3 MB app slots
-tools/esp32dif-sink         PC side: PipeWire RTP sink + SAP announcement
-tools/esp32dif-sink.service systemd user unit
+pipewire/esp32dif-sink      PC side: PipeWire RTP sink + SAP announcement
+pipewire/esp32dif-sink.service systemd user unit
 ```
 
 ## Adding commands

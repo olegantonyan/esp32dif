@@ -1,5 +1,5 @@
 #!/bin/sh
-# Usage: tools/esp32dif-sink [host] [rate] [format]   e.g. tools/esp32dif-sink esp32dif.local 48000 S24BE
+# Usage: pipewire/esp32dif-sink [host] [rate] [format]   e.g. pipewire/esp32dif-sink esp32dif.local 48000 S24BE
 # Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT, SPDIF_PASSWORD (the service reads them from ~/.config/esp32dif-sink.conf)
 set -u
 

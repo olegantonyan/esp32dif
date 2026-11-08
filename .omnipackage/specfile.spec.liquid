@@ -18,9 +18,9 @@ Requires:   {{ runtime_dependencies | join: ', ' }}
 %build
 
 %install
-install -Dm755 tools/esp32dif-sink %{buildroot}/usr/bin/esp32dif-sink
+install -Dm755 pipewire/esp32dif-sink %{buildroot}/usr/bin/esp32dif-sink
 install -d %{buildroot}%{_userunitdir} %{buildroot}%{_userpresetdir}
-sed 's|%%h/.local/bin/|/usr/bin/|' tools/esp32dif-sink.service > %{buildroot}%{_userunitdir}/esp32dif-sink.service
+sed 's|%%h/.local/bin/|/usr/bin/|' pipewire/esp32dif-sink.service > %{buildroot}%{_userunitdir}/esp32dif-sink.service
 echo 'enable esp32dif-sink.service' > %{buildroot}%{_userpresetdir}/80-esp32dif-sink.preset
 
 %post

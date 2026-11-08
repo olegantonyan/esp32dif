@@ -63,11 +63,11 @@ If you rename the project, flash over USB too: OTA accepts only firmware with th
 
 ## Playing audio from the PC
 
-The PC runs `tools/esp32dif-sink`. It adds an output device "S/PDIF over Wi-Fi" to PipeWire. Select it in the sound settings, or play a file with `pw-play --target=esp32dif-rtp file.wav`.
+The PC runs `pipewire/esp32dif-sink`. It adds an output device "S/PDIF over Wi-Fi" to PipeWire. Select it in the sound settings, or play a file with `pw-play --target=esp32dif-rtp file.wav`.
 
 ```sh
-tools/esp32dif-sink                              # esp32dif.local, 48000 Hz, S24BE
-tools/esp32dif-sink esp32dif.local 44100 S24BE   # host, rate, format
+pipewire/esp32dif-sink                              # esp32dif.local, 48000 Hz, S24BE
+pipewire/esp32dif-sink esp32dif.local 44100 S24BE   # host, rate, format
 ```
 
 - **Password:** every 10 s the script logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the script prints an error and doesn't create the device.
@@ -79,8 +79,8 @@ tools/esp32dif-sink esp32dif.local 44100 S24BE   # host, rate, format
 Install the package (below), or link the files from this folder:
 
 ```sh
-ln -s "$PWD/tools/esp32dif-sink" ~/.local/bin/esp32dif-sink
-systemctl --user link "$PWD/tools/esp32dif-sink.service"
+ln -s "$PWD/pipewire/esp32dif-sink" ~/.local/bin/esp32dif-sink
+systemctl --user link "$PWD/pipewire/esp32dif-sink.service"
 systemctl --user enable --now esp32dif-sink
 journalctl --user -u esp32dif-sink -f
 ```
@@ -99,6 +99,8 @@ Run `chmod 600` on this file, because it has the password. Apply changes with `s
 Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (10), `SPDIF_MISSES` (3).
 
 ### Package
+
+Install from [repositories.omnipackage.org/esp32dif](https://repositories.omnipackage.org/esp32dif/install.html). GitHub Actions publishes a new build there from every master push that changes `pipewire/esp32dif-sink`, its service or `.omnipackage/`.
 
 `omnipackage build --distros opensuse_tumbleweed` builds an RPM, DEB or pacman package with the script and the service (config in `.omnipackage/`). It needs `pipewire`, `curl` and `nss-mdns`. The service is enabled for all users and starts at the next login. To start it now: `systemctl --user daemon-reload && systemctl --user start esp32dif-sink`. To turn it off for your user: `systemctl --user mask esp32dif-sink`.
 

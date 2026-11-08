@@ -48,7 +48,7 @@ static int cmd_status(int argc, char **argv)
     printf("listen   RTP UDP %d, SAP UDP %d, mDNS %s.%s on %s.local\n", CONFIG_APP_RTP_PORT, CONFIG_APP_RTP_SAP_PORT, RTP_MDNS_SERVICE, RTP_MDNS_PROTO, cfg.hostname);
     printf("senders  ");
     if (!s.leases) {
-        printf("none allowed: tools/esp32dif-sink with SPDIF_PASSWORD gets a %d s lease", CONFIG_APP_RTP_LEASE_S);
+        printf("none allowed: pipewire/esp32dif-sink with SPDIF_PASSWORD gets a %d s lease", CONFIG_APP_RTP_LEASE_S);
     }
     for (int i = 0; i < s.leases; i++) {
         struct in_addr a = { .s_addr = s.lease[i].ip };
@@ -63,7 +63,7 @@ static int cmd_status(int argc, char **argv)
         inet_ntoa_r(origin, origin_str, sizeof(origin_str));
         printf("session  '%s' %s/%lu/%u from %s, announced %lld s ago\n", s.session.name, s.session.encoding, (unsigned long)s.session.rate, s.session.channels, origin_str, (now - s.session.seen_us) / 1000000);
     } else {
-        printf("session  no SAP announcement: playback waits for one (tools/esp32dif-sink sends it)\n");
+        printf("session  no SAP announcement: playback waits for one (pipewire/esp32dif-sink sends it)\n");
     }
     if (!s.streams) {
         printf("stream   none yet\n");

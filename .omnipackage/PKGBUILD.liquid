@@ -12,8 +12,8 @@ sha256sums=('SKIP')
 
 package() {
   cd "$srcdir/{{ source_folder_name }}"
-  install -Dm755 tools/esp32dif-sink "$pkgdir/usr/bin/esp32dif-sink"
+  install -Dm755 pipewire/esp32dif-sink "$pkgdir/usr/bin/esp32dif-sink"
   install -d "$pkgdir/usr/lib/systemd/user/pipewire.service.wants"
-  sed 's|%h/.local/bin/|/usr/bin/|' tools/esp32dif-sink.service > "$pkgdir/usr/lib/systemd/user/esp32dif-sink.service"
+  sed 's|%h/.local/bin/|/usr/bin/|' pipewire/esp32dif-sink.service > "$pkgdir/usr/lib/systemd/user/esp32dif-sink.service"
   ln -s ../esp32dif-sink.service "$pkgdir/usr/lib/systemd/user/pipewire.service.wants/esp32dif-sink.service"
 }
