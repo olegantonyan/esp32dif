@@ -1,5 +1,7 @@
 # esp32dif
 
+[![OmniPackage repositories badge](https://repositories.omnipackage.org/esp32dif/badge.svg)](https://repositories.omnipackage.org/esp32dif/install.html)
+
 Wi-Fi to S/PDIF receiver. The PC sends audio over Wi-Fi, and an ESP32-C5-DevKitC-1 plays it on a PiFi Digi+ (WM8804) S/PDIF board.
 
 - Lossless 16/24-bit PCM, 32–192 kHz, bit-perfect when PipeWire does not change the audio.
@@ -63,27 +65,24 @@ If you rename the project, flash over USB too: OTA accepts only firmware with th
 
 ## Playing audio from the PC
 
-The PC runs `pipewire/esp32dif-sink`. It adds an output device "S/PDIF over Wi-Fi" to PipeWire. Select it in the sound settings, or play a file with `pw-play --target=esp32dif-rtp file.wav`.
+The PC runs the `esp32dif-sink` service. It adds an output device "S/PDIF over Wi-Fi" to PipeWire. Select it in the sound settings, or play a file with `pw-play --target=esp32dif-rtp file.wav`.
+
+### Install
+
+Install the `esp32dif-sink` package from [repositories.omnipackage.org/esp32dif](https://repositories.omnipackage.org/esp32dif/install.html) (openSUSE, Fedora, Debian, Ubuntu, Arch, Manjaro). It is built from every master push that changes the sink. Then start the service:
 
 ```sh
-pipewire/esp32dif-sink                              # esp32dif.local, 48000 Hz, S24BE
-pipewire/esp32dif-sink esp32dif.local 44100 S24BE   # host, rate, format
-```
-
-- **Password:** every 10 s the script logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the script prints an error and doesn't create the device.
-- **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the script follows it.
-- **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
-
-### Run it as a service
-
-Install the package (below), or link the files from this folder:
-
-```sh
-ln -s "$PWD/pipewire/esp32dif-sink" ~/.local/bin/esp32dif-sink
-systemctl --user link "$PWD/pipewire/esp32dif-sink.service"
-systemctl --user enable --now esp32dif-sink
+systemctl --user daemon-reload && systemctl --user enable --now esp32dif-sink
 journalctl --user -u esp32dif-sink -f
 ```
+
+To turn it off for your user: `systemctl --user mask esp32dif-sink`.
+
+- **Password:** every 10 s the service logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the service logs an error and doesn't create the device.
+- **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the service follows it.
+- **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
+
+### Settings
 
 Settings go in `~/.config/esp32dif-sink.conf`, for example:
 
@@ -98,18 +97,29 @@ Run `chmod 600` on this file, because it has the password. Apply changes with `s
 
 Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (10), `SPDIF_MISSES` (3).
 
-### Package
+### Without the package
 
-Install from [repositories.omnipackage.org/esp32dif](https://repositories.omnipackage.org/esp32dif/install.html). GitHub Actions publishes a new build there from every master push that changes `pipewire/esp32dif-sink`, its service or `.omnipackage/`.
+If there is no package for your distro, link the files from this folder. The script needs `pipewire`, `curl` and `nss-mdns`.
 
-`omnipackage build --distros opensuse_tumbleweed` builds an RPM, DEB or pacman package with the script and the service (config in `.omnipackage/`). It needs `pipewire`, `curl` and `nss-mdns`. The service is enabled for all users and starts at the next login. To start it now: `systemctl --user daemon-reload && systemctl --user start esp32dif-sink`. To turn it off for your user: `systemctl --user mask esp32dif-sink`.
+```sh
+ln -s "$PWD/pipewire/esp32dif-sink" ~/.local/bin/esp32dif-sink
+systemctl --user link "$PWD/pipewire/esp32dif-sink.service"
+systemctl --user enable --now esp32dif-sink
+```
+
+Or run it in a terminal:
+
+```sh
+pipewire/esp32dif-sink                              # esp32dif.local, 48000 Hz, S24BE
+pipewire/esp32dif-sink esp32dif.local 44100 S24BE   # host, rate, format
+```
 
 ### Sound quality
 
 For bit-perfect output:
 - set the device volume to 100 %,
 - play nothing else at the same time,
-- use the same rate in the file, the script and the PipeWire graph. The default PipeWire graph runs only at 48 kHz. Add `default.clock.allowed-rates = [ 44100 48000 ]` to allow 44.1 kHz too, then run the script with `44100`.
+- use the same rate in the file, the sink and the PipeWire graph. The default PipeWire graph runs only at 48 kHz. Add `default.clock.allowed-rates = [ 44100 48000 ]` to allow 44.1 kHz too, then set `SPDIF_RATE=44100`.
 
 Measured with `digi decode -d` (24-bit noise and −3 dBFS sines, compared with the file):
 
