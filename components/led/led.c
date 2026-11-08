@@ -125,7 +125,7 @@ esp_err_t led_init(void)
         .resolution_hz = 10 * 1000 * 1000,
     };
     ESP_RETURN_ON_ERROR(led_strip_new_rmt_device(&strip_cfg, &rmt_cfg, &s_strip), TAG, "rmt device");
-    ESP_RETURN_ON_FALSE(xTaskCreate(led_task, "led", 2048, NULL, 1, NULL) == pdPASS, ESP_ERR_NO_MEM, TAG, "task");
+    ESP_RETURN_ON_FALSE(xTaskCreate(led_task, "led", 3072, NULL, 1, NULL) == pdPASS, ESP_ERR_NO_MEM, TAG, "task");
     return ESP_OK;
 }
 
