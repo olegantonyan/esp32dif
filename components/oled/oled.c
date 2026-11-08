@@ -26,9 +26,10 @@ static esp_lcd_panel_handle_t s_panel;
 static SemaphoreHandle_t s_lock;
 static oled_lines_t s_lines;
 static uint8_t s_fb[OLED_WIDTH * OLED_ROWS];
-static oled_state_t s_state = { .on = true, .contrast = 0x7F };
+static oled_state_t s_state = { .on = true, .contrast = 0x7F, .idle_s = CONFIG_APP_OLED_IDLE_S };
 static oled_auto_fn_t s_auto_fn;
 static bool s_dirty = true;
+static volatile bool s_wake = true;
 
 static void render(void)
 {
@@ -45,9 +46,28 @@ static void render(void)
     }
 }
 
+static void sleep_on_idle(int64_t now, int64_t *last_activity)
+{
+    if (s_wake) {
+        s_wake = false;
+        *last_activity = now;
+    }
+    bool idle = s_state.idle_s && now - *last_activity >= (int64_t)s_state.idle_s * 1000000;
+    if (!s_state.on || idle == s_state.asleep) {
+        return;
+    }
+    i2c_bus_lock();
+    esp_err_t err = esp_lcd_panel_disp_on_off(s_panel, !idle);
+    i2c_bus_unlock();
+    if (err == ESP_OK) {
+        s_state.asleep = idle;
+    }
+}
+
 static void oled_task(void *arg)
 {
     int64_t last_auto = 0;
+    int64_t last_activity = 0;
     for (;;) {
         xSemaphoreTake(s_lock, portMAX_DELAY);
         int64_t now = esp_timer_get_time();
@@ -64,6 +84,7 @@ static void oled_task(void *arg)
             i2c_bus_unlock();
             s_dirty = false;
         }
+        sleep_on_idle(now, &last_activity);
         xSemaphoreGive(s_lock);
         vTaskDelay(pdMS_TO_TICKS(OLED_TICK_MS));
     }
@@ -134,6 +155,7 @@ bool oled_auto(void)
     if (ok) {
         s_state.auto_mode = true;
         s_dirty = true;
+        s_wake = true;
     }
     xSemaphoreGive(s_lock);
     return ok;
@@ -146,6 +168,7 @@ static void set_manual(void)
         memset(s_lines, 0, sizeof(s_lines));
     }
     s_dirty = true;
+    s_wake = true;
 }
 
 void oled_print(int row, const char *text)
@@ -173,6 +196,8 @@ esp_err_t oled_power(bool on)
     esp_err_t err = esp_lcd_panel_disp_on_off(s_panel, on);
     if (err == ESP_OK) {
         s_state.on = on;
+        s_state.asleep = false;
+        s_wake |= on;
     }
     xSemaphoreGive(s_lock);
     return err;
@@ -187,6 +212,20 @@ esp_err_t oled_contrast(uint8_t level)
     }
     xSemaphoreGive(s_lock);
     return err;
+}
+
+void oled_idle(uint32_t seconds)
+{
+    if (lock()) {
+        s_state.idle_s = seconds;
+        s_wake = true;
+        xSemaphoreGive(s_lock);
+    }
+}
+
+void oled_wake(void)
+{
+    s_wake = true;
 }
 
 void oled_get(oled_state_t *out)

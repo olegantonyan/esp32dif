@@ -18,7 +18,9 @@ typedef struct {
     bool ready;
     bool auto_mode;
     bool on;
+    bool asleep;
     uint8_t contrast;
+    uint32_t idle_s;
 } oled_state_t;
 
 esp_err_t oled_init(void);
@@ -28,4 +30,6 @@ void oled_print(int row, const char *text);
 void oled_clear(void);
 esp_err_t oled_power(bool on);
 esp_err_t oled_contrast(uint8_t level);
+void oled_idle(uint32_t seconds);
+void oled_wake(void);
 void oled_get(oled_state_t *out);

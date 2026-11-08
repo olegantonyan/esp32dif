@@ -43,7 +43,7 @@ One password protects the web UI, telnet, the board's access point and audio sen
 | Telnet | `telnet esp32dif.local`. Same commands as USB, one session at a time, logout after 10 minutes without input. |
 | USB | `make monitor` |
 
-Change the hostname and password in the web UI, or with `config hostname <name>` and `config password <pw>`. The board saves them and uses them at once. The OLED always shows the current password, so you can't lock yourself out.
+Change the hostname and password in the web UI, or with `config hostname <name>` and `config password <pw>`. The board saves them and uses them at once. The OLED always shows the current password, so you can't lock yourself out (if it's asleep, press a remote key or reboot).
 
 The password travels as plain text over HTTP and telnet. This is fine on a home network, but not on networks you don't trust.
 
@@ -207,6 +207,8 @@ heap 312 KB free     free memory
 
 On 128x32 displays: format, source, IP address, password.
 
+To prevent burn-in, the screen turns off after 2 minutes without activity. A remote key, a format or source change, a Wi-Fi or access point change, or any `oled` command wakes it. Change the timeout with `oled idle` or in menuconfig (Board OLED).
+
 ## Shell commands
 
 The same commands work on USB and telnet. Line editing, history, Tab completion and `help [cmd]` are available.
@@ -232,7 +234,7 @@ The same commands work on USB and telnet. Line editing, history, Tab completion 
 | `digi trim <ppm>` / `digi trimtest <ppm>` | adjust the WM8804 clock / test clock adjustment |
 | `ir status` / `ir keys` | IR line level, last frame and connected PCs / known remote buttons |
 | `ir watch [-r]` | print remote codes live (`-r`: pulse widths); add new buttons to `components/remote/keymap.c` |
-| `oled status` / `on` / `off` / `contrast <0-255>` | display state / power / contrast |
+| `oled status` / `on` / `off` / `contrast <0-255>` / `idle <s>` | display state / power / contrast / turn off after s idle seconds (0 = never) |
 | `oled print <row> <text>` / `clear` / `auto` | write text / clear / back to the status screen |
 | `led color <color>` | color: name, `#rrggbb` or `r,g,b` (`led presets` lists names) |
 | `led blink\|breathe <color> [-p ms]` / `led rainbow [-p ms]` | effects |

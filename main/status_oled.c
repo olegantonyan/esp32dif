@@ -3,7 +3,9 @@
 #include "digi.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
+#include "ir.h"
 #include "net.h"
+#include "oled.h"
 #include "rtp.h"
 #include "settings.h"
 #include "status_oled.h"
@@ -55,11 +57,51 @@ static void network_line(char *line, size_t len)
     }
 }
 
+typedef struct {
+    uint32_t ir_seq;
+    bool digi_ready, digi_blind;
+    uint32_t rate, tone_hz;
+    rtp_play_state_t play_state;
+    bool has_ip, associated, reconnect, ap_active;
+    int ap_clients;
+    settings_t cfg;
+} activity_t;
+
+static void wake_on_activity(const settings_t *cfg)
+{
+    static activity_t last;
+    activity_t a;
+    memset(&a, 0, sizeof(a));
+    static ir_frame_t ir;
+    ir_get(&ir);
+    digi_state_t digi;
+    digi_get(&digi);
+    rtp_stats_t rtp;
+    rtp_get(&rtp);
+    a.ir_seq = ir.seq;
+    a.digi_ready = digi.ready;
+    a.digi_blind = digi.blind;
+    a.rate = digi.rate;
+    a.tone_hz = digi.tone_hz;
+    a.play_state = rtp.play_state;
+    a.has_ip = net_has_ip();
+    a.associated = net_associated();
+    a.reconnect = net_reconnect_enabled();
+    a.ap_active = net_ap_active();
+    a.ap_clients = net_ap_clients();
+    a.cfg = *cfg;
+    if (memcmp(&a, &last, sizeof(a))) {
+        last = a;
+        oled_wake();
+    }
+}
+
 void status_oled_screen(oled_lines_t lines)
 {
     uint32_t s = esp_timer_get_time() / 1000000;
     settings_t cfg;
     settings_get(&cfg);
+    wake_on_activity(&cfg);
 
     audio_lines(lines[0], lines[1], sizeof(lines[0]));
     network_line(lines[2], sizeof(lines[2]));

@@ -24,4 +24,11 @@ menu "Board OLED"
         default 64 if APP_OLED_HEIGHT_64
         default 32 if APP_OLED_HEIGHT_32
 
+    config APP_OLED_IDLE_S
+        int "Turn off after idle seconds"
+        default 120
+        range 0 86400
+        help
+            Display sleeps after this many seconds without activity to prevent burn-in. 0 = never.
+
 endmenu
