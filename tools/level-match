@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Usage: tools/level-match <label> [seconds]
+
+Plays pink noise (-20 dBFS RMS) to the default sink, records it from the default source,
+saves octave-band levels as ~/.cache/level-match/<label>.json and prints the difference
+to every other saved label. Keep the mic, the listener and the speaker knobs fixed between runs.
+"""
+import json, os, signal, subprocess, sys, tempfile, time, wave
+from pathlib import Path
+import numpy as np
+
+FS = 48000
+BANDS = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
+BROAD = (200, 5000)
+STORE = Path.home() / ".cache/level-match"
+
+
+def pink(seconds):
+    n = seconds * FS
+    w = np.fft.rfft(np.random.default_rng(0).standard_normal(n))
+    f = np.fft.rfftfreq(n, 1 / FS)
+    w[1:] /= np.sqrt(f[1:])
+    w[f < 20] = 0
+    x = np.fft.irfft(w, n)
+    x *= 0.1 / np.sqrt(np.mean(x**2))
+    ramp = np.linspace(0, 1, FS // 10)
+    x[: len(ramp)] *= ramp
+    x[-len(ramp):] *= ramp[::-1]
+    return np.stack([x, x], 1)
+
+
+def write_wav(path, x):
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(x.shape[1])
+        f.setsampwidth(4)
+        f.setframerate(FS)
+        f.writeframes((x * 2**31).astype("<i4").tobytes())
+
+
+def read_wav(path):
+    with wave.open(str(path)) as f:
+        assert f.getsampwidth() == 4 and f.getframerate() == FS
+        x = np.frombuffer(f.readframes(f.getnframes()), "<i4").astype(float) / 2**31
+        return x.reshape(-1, f.getnchannels())[:, 0]
+
+
+def psd(x, seg=16384):
+    win = np.hanning(seg)
+    frames = [x[i : i + seg] * win for i in range(0, len(x) - seg, seg // 2)]
+    return np.fft.rfftfreq(seg, 1 / FS), np.mean([np.abs(np.fft.rfft(fr)) ** 2 for fr in frames], 0)
+
+
+def band_db(f, p, lo, hi):
+    return 10 * np.log10(p[(f >= lo) & (f < hi)].sum() + 1e-30)
+
+
+def analyse(rec, seconds):
+    f, pn = psd(rec[int(0.1 * FS) : int(1.4 * FS)])
+    _, ps = psd(rec[int(3.0 * FS) : int((seconds + 0.5) * FS)])
+    out = {"bands": {}, "snr": {}}
+    for c in BANDS:
+        lo, hi = c / 2**0.5, c * 2**0.5
+        out["bands"][str(c)] = band_db(f, ps, lo, hi)
+        out["snr"][str(c)] = band_db(f, ps, lo, hi) - band_db(f, pn, lo, hi)
+    out["broad"] = band_db(f, ps, *BROAD)
+    out["peak"] = float(np.max(np.abs(rec)))
+    return out
+
+
+def sink_volume():
+    r = subprocess.run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True)
+    try:
+        return float(r.stdout.split()[1])
+    except (IndexError, ValueError):
+        return None
+
+
+def measure(label, seconds):
+    with tempfile.TemporaryDirectory() as d:
+        play, rec = Path(d) / "pink.wav", Path(d) / "rec.wav"
+        write_wav(play, pink(seconds))
+        r = subprocess.Popen(["pw-record", "--rate", str(FS), "--channels", "1", "--format", "s32", str(rec)])
+        time.sleep(1.5)
+        subprocess.run(["pw-play", str(play)], check=True)
+        time.sleep(1.0)
+        r.send_signal(signal.SIGINT)
+        r.wait()
+        res = analyse(read_wav(rec), seconds)
+    res["volume"] = sink_volume()
+    STORE.mkdir(parents=True, exist_ok=True)
+    (STORE / f"{label}.json").write_text(json.dumps(res, indent=1))
+    return res
+
+
+def report(label, res):
+    print(f"{label}: broadband {BROAD[0]}-{BROAD[1]} Hz {res['broad']:.2f} dB, mic peak {20 * np.log10(res['peak'] + 1e-12):.1f} dBFS, sink volume {res['volume']}")
+    if res["peak"] > 0.9:
+        print("  mic clipped: lower the source volume or move the mic away")
+    others = sorted(p for p in STORE.glob("*.json") if p.stem != label)
+    for p in others:
+        o = json.loads(p.read_text())
+        d = res["broad"] - o["broad"]
+        print(f"\n{label} - {p.stem}: broadband {d:+.2f} dB")
+        print("  band Hz   diff dB   (snr dB)")
+        for c in map(str, BANDS):
+            snr = min(res["snr"][c], o["snr"][c])
+            flag = "" if snr >= 15 else "  unreliable, low SNR"
+            print(f"  {float(c):>7g}  {res['bands'][c] - o['bands'][c]:+7.2f}   ({snr:.0f}){flag}")
+        if res["volume"]:
+            v = res["volume"] * 10 ** (-d / 60)
+            print(f"  to match {p.stem}, set this sink to {v:.4f} (wpctl set-volume @DEFAULT_AUDIO_SINK@ {v:.4f})")
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(__doc__)
+    label = sys.argv[1]
+    seconds = int(sys.argv[2]) if len(sys.argv) > 2 else 12
+    report(label, measure(label, seconds))
+
+
+if __name__ == "__main__":
+    main()

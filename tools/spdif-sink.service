@@ -4,6 +4,7 @@ After=pipewire.service
 BindsTo=pipewire.service
 
 [Service]
+EnvironmentFile=-%h/.config/spdif-sink.conf
 ExecStart=%h/.local/bin/spdif-sink
 Restart=always
 RestartSec=10

@@ -1,0 +1,10 @@
+#!/usr/bin/make -f
+D = $(CURDIR)/debian/{{ package_name }}
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	install -Dm755 tools/spdif-sink $(D)/usr/bin/spdif-sink
+	install -d $(D)/usr/lib/systemd/user
+	sed 's|%h/.local/bin/|/usr/bin/|' tools/spdif-sink.service > $(D)/usr/lib/systemd/user/spdif-sink.service

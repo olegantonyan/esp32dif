@@ -1,0 +1,67 @@
+version_extractors:
+  - name: default
+    provider: constant
+    constant:
+      version: "0.1.0"
+
+common: &common
+  package_name: "spdif-sink"
+  maintainer: "Oleg Antonyan <oleg.b.antonyan@gmail.com>"
+  homepage: "https://github.com/olegantonyan/esp32c5"
+  description: "PipeWire sink that streams RTP audio to the ESP32-C5 S/PDIF receiver"
+
+ignore_source_files:
+  - .git
+  - .env
+  - /build
+  - /.cache
+  - /managed_components
+  - /components
+  - /main
+  - /docs
+  - /CMakeLists.txt
+  - /Makefile
+  - /dependencies.lock
+  - /sdkconfig
+  - /sdkconfig.defaults
+
+repositories:
+  - name: Local test
+    gpg_private_key_base64: "${GPG_KEY}"
+    provider: localfs
+    retain_packages: 0
+    <<: *common
+    localfs:
+      path: "${HOME}/spdif-sink-repo"
+
+rpm: &rpm
+  <<: *common
+  build_dependencies: [systemd-rpm-macros]
+  runtime_dependencies: [pipewire, iputils, nss-mdns]
+  rpm:
+    spec_template: ".omnipackage/specfile.spec.liquid"
+
+deb: &deb
+  <<: *common
+  build_dependencies: []
+  runtime_dependencies: [pipewire, iputils-ping, libnss-mdns]
+  deb:
+    debian_templates: ".omnipackage/deb"
+
+pacman: &pacman
+  <<: *common
+  build_dependencies: []
+  runtime_dependencies: [pipewire, iputils, nss-mdns]
+  pacman:
+    pkgbuild_template: ".omnipackage/PKGBUILD.liquid"
+
+builds:
+  - { distro: "opensuse_tumbleweed", <<: *rpm }
+  - { distro: "opensuse_16.1", <<: *rpm }
+  - { distro: "fedora_44", <<: *rpm }
+  - { distro: "fedora_45", <<: *rpm }
+  - { distro: "debian_13", <<: *deb }
+  - { distro: "ubuntu_24.04", <<: *deb }
+  - { distro: "ubuntu_26.04", <<: *deb }
+  - { distro: "arch", <<: *pacman }
+  - { distro: "manjaro", <<: *pacman }

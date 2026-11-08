@@ -1,0 +1,39 @@
+Name:       {{ package_name }}
+Version:    {{ version }}
+Release:    1%{?dist}
+Summary:    {{ description }}
+License:    GPL-3.0-or-later
+URL:        {{ homepage }}
+Source0:    {{ source_folder_name }}.tar.gz
+BuildArch:  noarch
+BuildRequires: {{ build_dependencies | join: " " }}
+Requires:   {{ runtime_dependencies | join: ', ' }}
+
+%description
+{{ description }}.
+
+%prep
+%setup -q
+
+%build
+
+%install
+install -Dm755 tools/spdif-sink %{buildroot}/usr/bin/spdif-sink
+install -d %{buildroot}%{_userunitdir} %{buildroot}%{_userpresetdir}
+sed 's|%%h/.local/bin/|/usr/bin/|' tools/spdif-sink.service > %{buildroot}%{_userunitdir}/spdif-sink.service
+echo 'enable spdif-sink.service' > %{buildroot}%{_userpresetdir}/80-spdif-sink.preset
+
+%post
+%systemd_user_post spdif-sink.service
+
+%preun
+%systemd_user_preun spdif-sink.service
+
+%files
+/usr/bin/spdif-sink
+%{_userunitdir}/spdif-sink.service
+%{_userpresetdir}/80-spdif-sink.preset
+
+%changelog
+* Sun Nov 08 2026 {{ maintainer }}
+- Initial package release

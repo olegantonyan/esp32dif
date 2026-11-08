@@ -1,10 +1,11 @@
 #!/bin/sh
 # Usage: tools/spdif-sink [host] [rate] [format]   e.g. tools/spdif-sink spdif.local 48000 S24BE
+# Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT (the service reads them from ~/.config/spdif-sink.conf)
 set -u
 
-host=${1:-spdif.local}
-rate=${2:-48000}
-format=${3:-S24BE}
+host=${1:-${SPDIF_HOST:-spdif.local}}
+rate=${2:-${SPDIF_RATE:-48000}}
+format=${3:-${SPDIF_FORMAT:-S24BE}}
 port=${SPDIF_PORT:-5004}
 sap_port=${SPDIF_SAP_PORT:-9875}
 check_s=${SPDIF_CHECK_S:-10}

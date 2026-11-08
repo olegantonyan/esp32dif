@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+# Usage: tools/aptx-roundtrip [music file]   measures ffmpeg aptX HD encode/decode error on noise, sines and optional music
+import numpy as np, subprocess, sys
+FS=48000
+def roundtrip(x, codec="aptx_hd"):
+    pcm=(np.clip(x,-1,1-2**-23)*2**31).astype('<i4').tobytes()
+    enc=subprocess.run(["ffmpeg","-v","error","-f","s32le","-ar",str(FS),"-ac","2","-i","-","-c:a",codec,"-f",codec,"-"],input=pcm,capture_output=True,check=True).stdout
+    dec=subprocess.run(["ffmpeg","-v","error","-f",codec,"-ar",str(FS),"-i","-","-f","s32le","-ac","2","-"],input=enc,capture_output=True,check=True).stdout
+    y=np.frombuffer(dec,'<i4').astype(float).reshape(-1,2)/2**31
+    return y, len(enc)*8/(len(x)/FS)
+def align(x,y):
+    n=min(len(x),len(y)); a=x[:n,0]; b=y[:n,0]
+    N=1<<int(np.ceil(np.log2(2*n)))
+    c=np.fft.irfft(np.fft.rfft(b,N)*np.conj(np.fft.rfft(a,N)),N)
+    d=int(np.argmax(c[:5000]))
+    y=y[d:]; n=min(len(x),len(y)); x=x[:n]; y=y[:n]
+    g=np.sum(x*y)/np.sum(x*x)
+    return x,y,d,g
+def db(v): return 20*np.log10(np.maximum(v,1e-15))
+def rms(v): return np.sqrt(np.mean(v**2))
+def bands(x,e,label):
+    edges=[20,40,80,160,320,640,1280,2560,5120,10240,16000,20000,24000]
+    X=np.abs(np.fft.rfft(x[:,0]*np.hanning(len(x))))**2; E=np.abs(np.fft.rfft(e[:,0]*np.hanning(len(e))))**2
+    f=np.fft.rfftfreq(len(x),1/FS)
+    print(f"  {label}: band  signal dB  error dB  SNR dB")
+    for lo,hi in zip(edges[:-1],edges[1:]):
+        m=(f>=lo)&(f<hi); s=10*np.log10(X[m].sum()+1e-30); r=10*np.log10(E[m].sum()+1e-30)
+        print(f"    {lo:>5}-{hi:<5} {s-10*np.log10(X.sum()):8.1f} {r-10*np.log10(X.sum()):9.1f} {s-r:7.1f}")
+def analyse(name,x,bandtable=False):
+    y,br=roundtrip(x); x2,y2,d,g=align(x,y)
+    sl=slice(FS//10,-FS//10); x2=x2[sl]; y2=y2[sl]
+    e=y2-x2
+    print(f"{name}: delay {d} smp, gain {db(g):+.4f} dB, level x {db(rms(x2)):.1f} dBFS, error {db(rms(e)):.1f} dBFS, SNR {db(rms(x2)/rms(e)):.1f} dB, bitrate {br/1000:.0f} kb/s")
+    if bandtable: bands(x2,e,name)
+    return x2,y2
+rng=np.random.default_rng(1)
+T=10; n=T*FS
+w=rng.standard_normal((n,2))
+W=np.fft.rfft(w,axis=0); f=np.fft.rfftfreq(n,1/FS); W[1:]/=np.sqrt(f[1:,None]); W[0]=0
+pink=np.fft.irfft(W,n,axis=0); pink*=10**(-20/20)/rms(pink)
+analyse("pink -20 dBFS",pink,True)
+white=w*10**(-20/20)
+x2,y2=analyse("white -20 dBFS",white)
+seg=8192; win=np.hanning(seg); H=[]
+for i in range(0,len(x2)-seg,seg//2):
+    H.append((np.fft.rfft(y2[i:i+seg,0]*win)*np.conj(np.fft.rfft(x2[i:i+seg,0]*win)), np.abs(np.fft.rfft(x2[i:i+seg,0]*win))**2))
+Sxy=sum(h[0] for h in H); Sxx=sum(h[1] for h in H); fr=np.fft.rfftfreq(seg,1/FS)
+mag=db(np.abs(Sxy/Sxx))
+print("  frequency response (white noise transfer):")
+for fq in [10,20,30,40,60,100,1000,5000,10000,15000,18000,20000,21000,22000,23000]:
+    print(f"    {fq:>6} Hz {mag[np.argmin(abs(fr-fq))]:+.3f} dB")
+t=np.arange(4*FS)/FS
+for fq,lv in [(30,-3),(50,-3),(100,-3),(1000,-3),(1000,-40),(10000,-3),(15000,-3),(19000,-6)]:
+    s=10**(lv/20)*np.sin(2*np.pi*fq*t); x=np.stack([s,s],1)
+    y,_=roundtrip(x); x2,y2,d,g=align(x,y); sl=slice(FS//2,-FS//2); e=y2[sl]-g*x2[sl]
+    print(f"sine {fq} Hz {lv} dBFS: THD+N {db(rms(e)/rms(g*x2[sl])):.1f} dB, gain {db(g):+.4f} dB")
+z=np.zeros((2*FS,2)); y,_=roundtrip(z); print(f"silence: output {db(rms(y[1000:])+1e-15):.1f} dBFS")
+if len(sys.argv)>1:
+    raw=subprocess.run(["ffmpeg","-v","error","-i",sys.argv[1],"-t","60","-ar",str(FS),"-ac","2","-f","s32le","-"],capture_output=True,check=True).stdout
+    m=np.frombuffer(raw,'<i4').astype(float).reshape(-1,2)/2**31
+    analyse("music",m,True)

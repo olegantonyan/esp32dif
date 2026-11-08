@@ -1,0 +1,19 @@
+# Maintainer: {{ maintainer }}
+pkgname={{ package_name }}
+pkgver={{ version }}
+pkgrel=1
+pkgdesc="{{ description }}"
+arch=('any')
+url="{{ homepage }}"
+license=('GPL-3.0-or-later')
+depends=({{ runtime_dependencies | join: ' ' }})
+source=("{{ source_folder_name }}.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  cd "$srcdir/{{ source_folder_name }}"
+  install -Dm755 tools/spdif-sink "$pkgdir/usr/bin/spdif-sink"
+  install -d "$pkgdir/usr/lib/systemd/user/pipewire.service.wants"
+  sed 's|%h/.local/bin/|/usr/bin/|' tools/spdif-sink.service > "$pkgdir/usr/lib/systemd/user/spdif-sink.service"
+  ln -s ../spdif-sink.service "$pkgdir/usr/lib/systemd/user/pipewire.service.wants/spdif-sink.service"
+}

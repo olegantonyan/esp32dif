@@ -117,7 +117,7 @@ tools/spdif-sink spdif.local 44100 S16BE
 
 The script resolves `spdif.local` and runs a PipeWire client with `module-rtp-sink` (unicast to UDP 5004) and `module-rtp-sap` (announces the stream format to the board on UDP 9875). It adds an output device "S/PDIF over Wi-Fi"; pick it in the sound settings or `pw-play --target=spdif-rtp file.wav`. The node must be `media.class = "Audio/Sink"`: as a plain stream, WirePlumber links the microphone into it.
 
-The script runs until stopped. It waits until the board resolves and answers ping, pings it every 10 s, and removes the sink after 3 misses (`SPDIF_CHECK_S`, `SPDIF_MISSES`), so the device disappears ~30 s after the board goes offline and returns ~10 s after it's back. If the board's DHCP address changes, the sink follows it. To run it as a user service that starts with PipeWire:
+The script runs until stopped. It waits until the board resolves and answers ping, pings it every 10 s, and removes the sink after 3 misses (`SPDIF_CHECK_S`, `SPDIF_MISSES`), so the device disappears ~30 s after the board goes offline and returns ~10 s after it's back. If the board's DHCP address changes, the sink follows it. To run it as a user service that starts with PipeWire, install the package (below) or link it from the checkout:
 
 ```sh
 ln -s "$PWD/tools/spdif-sink" ~/.local/bin/spdif-sink
@@ -125,6 +125,12 @@ systemctl --user link "$PWD/tools/spdif-sink.service"
 systemctl --user enable --now spdif-sink
 journalctl --user -u spdif-sink -f
 ```
+
+The service reads `~/.config/spdif-sink.conf` if it exists (`SPDIF_HOST`, `SPDIF_RATE`, `SPDIF_FORMAT`, plus the `SPDIF_*` settings above), e.g. `SPDIF_RATE=44100`; apply with `systemctl --user restart spdif-sink`.
+
+### Package
+
+`omnipackage build --distros opensuse_tumbleweed` builds an RPM, DEB or pacman package of the script and the unit (config in `.omnipackage/`). It depends on `pipewire`, `ping` and `nss-mdns`, and enables the service for every user: a user preset on RPM, `deb-systemd-helper` on Debian, a `pipewire.service.wants` symlink on Arch. It starts at the next login, or now with `systemctl --user daemon-reload && systemctl --user start spdif-sink`. To opt out: `systemctl --user mask spdif-sink`.
 
 Limits: one fixed format, and PipeWire doesn't know the board's 250 ms buffer, so video players can't compensate for it.
 
