@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -229,6 +230,13 @@ static int cmd_status(int argc, char **argv)
     uint8_t reason = net_last_reason();
     if (!associated && reason) {
         printf("last error %s (%d)\n", net_reason_str(reason), reason);
+    }
+    net_drop_t drops[NET_DROPS_KEPT];
+    uint32_t n_drops = net_drops(drops);
+    printf("drops      %" PRIu32 " since boot\n", n_drops);
+    int64_t now = esp_timer_get_time();
+    for (uint32_t i = 0; i < n_drops && i < NET_DROPS_KEPT; i++) {
+        printf("  %5lld s ago from " MACSTR " at %d dBm: %s (%d)\n", (now - drops[i].at_us) / 1000000, MAC2STR(drops[i].bssid), drops[i].rssi, net_reason_str(drops[i].reason), drops[i].reason);
     }
     net_saved_t saved;
     printf("saved      %s\n", net_saved(&saved) == ESP_OK ? saved.ssid : "none");

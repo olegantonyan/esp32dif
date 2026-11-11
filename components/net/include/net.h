@@ -12,6 +12,15 @@ typedef struct {
     wifi_band_mode_t band;
 } net_saved_t;
 
+#define NET_DROPS_KEPT 4
+
+typedef struct {
+    int64_t at_us;
+    uint8_t bssid[6];
+    uint8_t reason;
+    int8_t rssi;
+} net_drop_t;
+
 esp_err_t net_init(void);
 
 esp_netif_t *net_sta(void);
@@ -26,6 +35,7 @@ bool net_associated(void);
 bool net_has_ip(void);
 bool net_reconnect_enabled(void);
 uint8_t net_last_reason(void);
+uint32_t net_drops(net_drop_t out[NET_DROPS_KEPT]);
 
 const char *net_reason_str(uint8_t reason);
 const char *net_auth_str(wifi_auth_mode_t mode);

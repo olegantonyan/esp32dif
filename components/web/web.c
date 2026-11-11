@@ -161,11 +161,13 @@ static void status_json(out_t *o)
     put(o, ",\"ip\":");
     put_ip(o, ip.ip.addr);
     if (associated) {
-        put(o, ",\"rssi\":%d,\"channel\":%d", ap.rssi, ap.primary);
+        put(o, ",\"rssi\":%d,\"channel\":%d,\"band\":\"%s\"", ap.rssi, ap.primary, net_band_str(ap.primary));
     }
     net_saved_t saved;
+    bool has_saved = net_saved(&saved) == ESP_OK;
     put(o, ",\"saved\":");
-    put_str(o, net_saved(&saved) == ESP_OK ? saved.ssid : "");
+    put_str(o, has_saved ? saved.ssid : "");
+    put(o, ",\"saved_band\":\"%s\"", !has_saved ? "" : saved.band == WIFI_BAND_MODE_2G_ONLY ? "2.4" : saved.band == WIFI_BAND_MODE_5G_ONLY ? "5" : "auto");
     put(o, "},\"ap\":{\"active\":%s,\"ssid\":", net_ap_active() ? "true" : "false");
     put_str(o, cfg.hostname);
     put(o, ",\"clients\":%d}", net_ap_clients());

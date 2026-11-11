@@ -13,8 +13,12 @@ body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,sans
 main{max-width:40rem;margin:0 auto;padding:1rem}
 h1{font-size:1.3rem;margin:.2rem 0 1rem}
 h1 small{color:var(--muted);font-weight:400;font-size:.9rem}
-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem;margin-bottom:1rem}
+section,details{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem;margin-bottom:1rem}
 h2{font-size:1rem;margin:0 0 .6rem}
+summary{cursor:pointer}
+summary h2{display:inline;margin:0}
+summary span{color:var(--muted);margin-left:.5rem;font-size:.9rem}
+details[open] summary{margin-bottom:.6rem}
 table{width:100%;border-collapse:collapse}
 td{padding:.25rem 0;border-bottom:1px solid var(--line);vertical-align:top}
 td:first-child{color:var(--muted);width:7.5rem}
@@ -44,8 +48,8 @@ progress{width:100%;margin-top:.6rem}
 <table id="status"></table>
 </section>
 
-<section>
-<h2>Wi-Fi</h2>
+<details>
+<summary><h2>Wi-Fi</h2><span id="wsum"></span></summary>
 <button class="plain" id="scan">Scan</button>
 <div id="nets"></div>
 <label for="ssid">Network</label>
@@ -56,10 +60,10 @@ progress{width:100%;margin-top:.6rem}
 <select id="band"><option value="auto">auto (prefers 5 GHz)</option><option value="5">5 GHz</option><option value="2.4">2.4 GHz</option></select>
 <div class="row"><button id="connect">Connect</button><button class="plain" id="forget">Forget saved</button></div>
 <div class="msg" id="wmsg"></div>
-</section>
+</details>
 
-<section>
-<h2>Device</h2>
+<details>
+<summary><h2>Device</h2><span id="dsum"></span></summary>
 <label for="host">Hostname (a-z, 0-9, '-'; also the fallback AP name)</label>
 <input id="host" maxlength="32" autocomplete="off">
 <label for="pass1">New password (web UI, telnet, fallback AP, RTP senders; empty keeps it)</label>
@@ -68,19 +72,19 @@ progress{width:100%;margin-top:.6rem}
 <input id="pass2" type="password" maxlength="63" autocomplete="new-password">
 <button id="save">Save</button>
 <div class="msg" id="smsg"></div>
-</section>
+</details>
 
-<section>
-<h2>Firmware</h2>
+<details>
+<summary><h2>Firmware</h2><span id="fsum"></span></summary>
 <input id="fw" type="file" accept=".bin">
 <div class="row"><button id="upload">Upload and install</button><button class="plain" id="reboot">Reboot</button></div>
 <progress id="prog" max="1" value="0" hidden></progress>
 <div class="msg" id="fmsg"></div>
-</section>
+</details>
 </main>
 <script>
 const $ = id => document.getElementById(id);
-let last = null, hostFilled = false;
+let last = null, hostFilled = false, wifiFilled = false;
 
 function msg(id, text, ok) {
   const el = $(id);
@@ -117,6 +121,11 @@ function render(s) {
   $('title').firstChild.textContent = s.hostname + '.local ';
   if (!hostFilled) { $('host').value = s.hostname; hostFilled = true; }
   const sp = s.spdif, r = s.rtp, w = s.sta, ap = s.ap, o = s.ota;
+  const savedBand = w.saved_band === 'auto' ? 'band auto' : w.saved_band + ' GHz only';
+  if (!wifiFilled && w.saved) { $('ssid').value = w.saved; $('band').value = w.saved_band; wifiFilled = true; }
+  $('wsum').textContent = w.saved ? `saved: ${w.saved}, ${savedBand}` : 'no saved network';
+  $('dsum').textContent = s.hostname;
+  $('fsum').textContent = s.version;
   const khz = sp.rate / 1000;
   const src = sp.tone_hz ? `test tone ${sp.tone_hz} Hz`
     : r.state === 'playing' ? `RTP from ${r.from}, ${r.rate / 1000} kHz ${r.bits}-bit, buffer ${r.buffer_ms} ms`
@@ -126,9 +135,9 @@ function render(s) {
     ['Source', src],
     r.active && ['RTP loss', `${r.lost} lost of ${r.packets + r.lost} packets`],
     ['Senders', (r.senders.length ? r.senders.join(', ') : 'none authenticated') + (r.denied ? `; ${r.denied} packets denied` : '')],
-    ['Wi-Fi', w.state + (w.ssid ? ` to ${w.ssid}` : '') + (w.rssi !== undefined ? `, ${w.rssi} dBm, ch ${w.channel}` : '')],
+    ['Wi-Fi', w.state + (w.ssid ? ` to ${w.ssid}` : '') + (w.rssi !== undefined ? `, ${w.rssi} dBm, ch ${w.channel} (${w.band} GHz)` : '')],
     w.ip !== '0.0.0.0' && ['IP', w.ip],
-    ['Saved network', w.saved || 'none'],
+    ['Saved network', w.saved ? `${w.saved}, ${savedBand}` : 'none'],
     ['Fallback AP', ap.active ? `on: ${ap.ssid}, 192.168.4.1, ${ap.clients} client${ap.clients === 1 ? '' : 's'}` : 'off'],
     ['Firmware', `${s.version} on ${o.running}, ${o.state}`],
     ['Other slot', o.other ? `${o.other}: ${o.other_version || 'empty'}` : '-'],

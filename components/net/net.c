@@ -31,6 +31,8 @@ static int64_t s_since_us;
 static volatile bool s_reconnect;
 static volatile bool s_leaving;
 static volatile uint8_t s_last_reason;
+static net_drop_t s_drops[NET_DROPS_KEPT];
+static uint32_t s_drop_count;
 static esp_timer_handle_t s_retry_timer;
 static uint32_t s_retries;
 static net_saved_t s_pending;
@@ -88,7 +90,7 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
         xEventGroupSetBits(s_events, NET_ASSOCIATED);
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         const wifi_event_sta_disconnected_t *e = data;
-        xEventGroupClearBits(s_events, NET_ASSOCIATED | NET_GOT_IP);
+        bool was_associated = xEventGroupClearBits(s_events, NET_ASSOCIATED | NET_GOT_IP) & NET_ASSOCIATED;
         if (s_leaving) {
             s_leaving = false;
             return;
@@ -97,6 +99,11 @@ static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
             return;
         }
         s_last_reason = e->reason;
+        if (was_associated) {
+            net_drop_t *d = &s_drops[s_drop_count++ % NET_DROPS_KEPT];
+            *d = (net_drop_t){ .at_us = esp_timer_get_time(), .reason = e->reason, .rssi = e->rssi };
+            memcpy(d->bssid, e->bssid, sizeof(d->bssid));
+        }
         uint32_t delay_s = retry_delay_s(s_retries++);
         if (delay_s == 0) {
             ESP_LOGW(TAG, "disconnected: %s (%d), reconnecting", net_reason_str(e->reason), e->reason);
@@ -380,6 +387,15 @@ bool net_reconnect_enabled(void)
 uint8_t net_last_reason(void)
 {
     return s_last_reason;
+}
+
+uint32_t net_drops(net_drop_t out[NET_DROPS_KEPT])
+{
+    uint32_t n = s_drop_count;
+    for (uint32_t i = 0; i < NET_DROPS_KEPT && i < n; i++) {
+        out[i] = s_drops[(n - 1 - i) % NET_DROPS_KEPT];
+    }
+    return n;
 }
 
 const char *net_reason_str(uint8_t reason)
