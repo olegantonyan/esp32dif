@@ -20,7 +20,7 @@ Output is silent at boot. menuconfig → Board Digi+ → Test tone at boot sets 
 
 ## Digi+ wiring notes
 
-- 3.3 V: with 5V connected, measure HAT pin 1 (3V3) against GND. About 0 V means the HAT has no regulator: connect J1 pin 1 (`3V3`) to HAT pin 1. A WM8804 without power pulls SDA low through its ESD diodes, and this also blocks the OLED.
+- Power: the HAT makes its own 3.3 V from 5V. Wire only 5V and GND; leave HAT pin 1 (3V3) open. A WM8804 without power pulls SDA low through its ESD diodes, and this also blocks the OLED.
 - I2C pull-ups: add 2.2 kΩ from SDA and SCL to 3V3. The HAT expects the Pi's 1.8 kΩ pull-ups. The ESP32 internal pull-ups (about 45 kΩ) are too weak: BCLK crosstalk breaks 40–90 % of transfers while the WM8804 runs, and SDA can stay low until the HAT is power cycled. SCL is driven push-pull (no device stretches the clock); this alone halves the errors.
 - The HAT straps the WM8804 to 2-wire software mode (GPO0/SWIFMODE to GND), address 0x3B.
 - The WM8804 must be the I2S clock master (`AIF_MS`, R28 = 0x1C bit 6). In slave mode its S/PDIF transmitter needs an MCLK input, and the header has none. The ESP32 I2S is `I2S_ROLE_SLAVE`, Philips format.
@@ -36,7 +36,7 @@ Output is silent at boot. menuconfig → Board Digi+ → Test tone at boot sets 
 | Row | How | What it proves |
 |---|---|---|
 | lines | PCNT counts edges for 250 ms on BCLK, LRCLK (with and without a 1 µs glitch filter), SDA, SCL and DOUT (released, with a pull-down), before it touches the chip | BCLK running = WM8804 has power and a config; DOUT silent = its wire goes to an input, not swapped with LRCLK |
-| i2c | ACK at 0x3B, ID 0x8805, revision | 3V3, GND, SDA, SCL |
+| i2c | ACK at 0x3B, ID 0x8805, revision | 5V, GND, SDA, SCL |
 | noise | 200 reads of R1 while the WM8804 drives BCLK/LRCLK | I2C works with the I2S clocks running |
 | bclk / lrclk | after a restart: rate and 64 × rate within 2000 ppm | HAT pins 12 and 35, PLL settings |
 | crystal | config × measured BCLK / expected BCLK | crystal matches the config |

@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "esp32dif")(type "KiCad")(uri "${KIPRJMOD}/esp32dif.kicad_sym")(options "")(descr "esp32dif modules"))
+)

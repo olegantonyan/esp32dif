@@ -189,7 +189,7 @@ PiFi Digi+ 1.0, a HiFiBerry Digi+ clone. HAT pins are the physical pins of its 4
 | 39 | J3 pin 1 | `G` | ground, next to the I2S wires |
 
 - **Add 2.2 kΩ pull-ups** from SDA and SCL to 3V3. Without them, I2C fails while audio plays.
-- Check that HAT pin 1 has 3.3 V. If it shows about 0 V, connect J1 pin 1 (`3V3`) to HAT pin 1.
+- Leave HAT pin 1 (3V3) open: the HAT makes its own 3.3 V from 5V.
 - Run `digi probe` to check the wiring step by step. More notes: [docs/internals.md](docs/internals.md#digi-wiring-notes).
 
 ## OLED screen

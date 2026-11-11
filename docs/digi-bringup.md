@@ -19,11 +19,10 @@ Breadboard bring-up of the PiFi Digi+ 1.0 HAT on the ESP32-C5-DevKitC-1 with jum
 
 ## Problems found, in the order they bit
 
-1. **HAT 3V3 not powered.** This HAT has no 3.3 V regulator path from 5V alone. An unpowered WM8804 clamps SDA low through its ESD diodes and kills the OLED too. Wire 3V3.
-2. **WS and DOUT wires swapped.** The ESP32 DOUT output fought the WM8804 LRCLK output. Symptoms: I2C NACKs, SDA stuck low, LRCLK as noise, `DOUT released` showing 48000 edges/s. `digi probe` now detects it.
-3. **`digi probe` silenced the audio (firmware bug, fixed).** Its DOUT pull test calls `gpio_set_direction(INPUT)`, which disconnects the I2S output signal from GPIO4. Setting OUTPUT again leaves a plain GPIO stuck at 0, so the S/PDIF stream carried zeros until reboot. The probe now calls `i2s_channel_reconfig_std_gpio` afterwards. This was why no tone was heard for most of the session, even though the stream was valid.
-4. **SDA stuck low after an ESP32 reset (every flash) while the WM8804 runs.** Nine recovery clocks plus a STOP don't release it; only a HAT power cycle does. The WM8804 keeps its configuration and keeps clocking. Firmware workaround: if I2C is dead at boot but LRCLK runs at a supported rate, I2S starts anyway at the measured rate, so audio plays (`digi status` says "no I2C answer ... audio runs").
-5. **I2C corrupted by I2S crosstalk.** It works with the clocks stopped and fails while BCLK (2.8 MHz) runs. The driver resets the chip first (the reset stops the clocks), so configuration runs on a quiet bus, and retries every access up to 20 times.
+1. **WS and DOUT wires swapped.** The ESP32 DOUT output fought the WM8804 LRCLK output. Symptoms: I2C NACKs, SDA stuck low, LRCLK as noise, `DOUT released` showing 48000 edges/s. `digi probe` now detects it.
+2. **`digi probe` silenced the audio (firmware bug, fixed).** Its DOUT pull test calls `gpio_set_direction(INPUT)`, which disconnects the I2S output signal from GPIO4. Setting OUTPUT again leaves a plain GPIO stuck at 0, so the S/PDIF stream carried zeros until reboot. The probe now calls `i2s_channel_reconfig_std_gpio` afterwards. This was why no tone was heard for most of the session, even though the stream was valid.
+3. **SDA stuck low after an ESP32 reset (every flash) while the WM8804 runs.** Nine recovery clocks plus a STOP don't release it; only a HAT power cycle does. The WM8804 keeps its configuration and keeps clocking. Firmware workaround: if I2C is dead at boot but LRCLK runs at a supported rate, I2S starts anyway at the measured rate, so audio plays (`digi status` says "no I2C answer ... audio runs").
+4. **I2C corrupted by I2S crosstalk.** It works with the clocks stopped and fails while BCLK (2.8 MHz) runs. The driver resets the chip first (the reset stops the clocks), so configuration runs on a quiet bus, and retries every access up to 20 times.
 
 ## I2C noise measurements (reads of R1 while BCLK/LRCLK run)
 
@@ -95,7 +94,7 @@ For Wi-Fi streaming: track the sender's clock by trimming the WM8804 PLL fractio
 - 2.2 kΩ pull-ups on SDA and SCL (1.8–4.7 kΩ).
 - A solid ground plane under the I2S and I2C traces. Keep BCLK/LRCLK/DOUT away from SDA/SCL, or put ground between them.
 - 22–33 Ω series resistors at the drivers of BCLK and LRCLK (WM8804 side) and DOUT (ESP32 side), to slow the edges and cut crosstalk.
-- A way to reset the WM8804 without power cycling everything. Its I2C can latch SDA low after an ESP32 reset. Options: a GPIO-controlled load switch on the HAT 3V3 (and 5V), or a GPIO on the WM8804 reset line if the board exposes one (on this HAT it's an RC network).
+- A way to reset the WM8804 without power cycling everything. Its I2C can latch SDA low after an ESP32 reset. Options: a GPIO-controlled load switch on the HAT 5V, or a GPIO on the WM8804 reset line if the board exposes one (on this HAT it's an RC network).
 - Optionally a separate I2C bus for the WM8804, so a latched SDA doesn't take the OLED with it.
 - WM8804 TX0 (pin 17) to GPIO5 through a normally closed solder jumper and a 1 kΩ series resistor at the ESP32, for `digi spdif` / `digi decode` / `digi trimtest`. The resistor protects TX0 if GPIO5 is ever driven as an output.
 
