@@ -15,7 +15,9 @@
 #define AUTH_TIMEOUT_US (5 * 1000 * 1000)
 #define PING_US (30 * 1000 * 1000)
 #define REPRESS_US (300 * 1000)
-#define CLIENT_LINE_MAX 72
+#define PASSWORD_LINE_MAX 72
+#define CLIENT_LINE_MAX 320
+#define TRACK_CMD "track"
 
 typedef struct {
     int sock;
@@ -24,6 +26,8 @@ typedef struct {
     int64_t since_us;
     size_t len;
     char line[CLIENT_LINE_MAX];
+    char artist[REMOTE_TRACK_MAX];
+    char title[REMOTE_TRACK_MAX];
 } client_t;
 
 static const char *TAG = "remote";
@@ -42,6 +46,7 @@ static void drop(client_t *c, const char *why)
     close(c->sock);
     c->sock = -1;
     c->ready = false;
+    c->artist[0] = c->title[0] = '\0';
 }
 
 static bool send_line(client_t *c, const char *s)
@@ -125,6 +130,52 @@ static void accept_client(int listener)
     *slot = (client_t){ .sock = sock, .ip = addr.sin_addr.s_addr, .since_us = esp_timer_get_time() };
 }
 
+static void check_password(client_t *c)
+{
+    bool ok = settings_check_password(c->line);
+    memset(c->line, 0, sizeof(c->line));
+    if (!ok) {
+        send_line(c, "denied");
+        drop(c, "wrong password");
+        return;
+    }
+    if (send_line(c, "ok")) {
+        c->ready = true;
+        c->since_us = esp_timer_get_time();
+        char ip[16];
+        inet_ntoa_r(c->ip, ip, sizeof(ip));
+        ESP_LOGI(TAG, "%s: connected", ip);
+    }
+}
+
+static void copy_utf8(char *dst, size_t size, const char *src, size_t n)
+{
+    if (n >= size) {
+        n = size - 1;
+        while (n && ((unsigned char)src[n] & 0xC0) == 0x80) {
+            n--;
+        }
+    }
+    memcpy(dst, src, n);
+    dst[n] = '\0';
+}
+
+static void set_track(client_t *c, const char *text)
+{
+    const char *tab = strchr(text, '\t');
+    const char *title = tab ? tab + 1 : text;
+    copy_utf8(c->artist, sizeof(c->artist), text, tab ? (size_t)(tab - text) : 0);
+    copy_utf8(c->title, sizeof(c->title), title, strlen(title));
+}
+
+static void handle_line(client_t *c)
+{
+    size_t n = strlen(TRACK_CMD);
+    if (!strncmp(c->line, TRACK_CMD, n) && (c->line[n] == ' ' || c->line[n] == '\0')) {
+        set_track(c, c->line[n] ? c->line + n + 1 : "");
+    }
+}
+
 static void read_client(client_t *c)
 {
     char buf[CLIENT_LINE_MAX];
@@ -133,37 +184,26 @@ static void read_client(client_t *c)
         drop(c, "disconnected");
         return;
     }
-    if (c->ready) {
-        return;
-    }
-    for (ssize_t i = 0; i < n; i++) {
+    for (ssize_t i = 0; i < n && c->sock >= 0; i++) {
         if (buf[i] == '\r') {
             continue;
         }
         if (buf[i] != '\n') {
-            if (c->len >= sizeof(c->line) - 1) {
+            size_t max = c->ready ? sizeof(c->line) : PASSWORD_LINE_MAX;
+            if (c->len < max - 1) {
+                c->line[c->len++] = buf[i];
+            } else if (!c->ready) {
                 drop(c, "password line too long");
-                return;
             }
-            c->line[c->len++] = buf[i];
             continue;
         }
         c->line[c->len] = '\0';
-        bool ok = settings_check_password(c->line);
-        memset(c->line, 0, sizeof(c->line));
-        if (!ok) {
-            send_line(c, "denied");
-            drop(c, "wrong password");
-            return;
+        c->len = 0;
+        if (c->ready) {
+            handle_line(c);
+        } else {
+            check_password(c);
         }
-        if (send_line(c, "ok")) {
-            c->ready = true;
-            c->since_us = esp_timer_get_time();
-            char ip[16];
-            inet_ntoa_r(c->ip, ip, sizeof(ip));
-            ESP_LOGI(TAG, "%s: connected", ip);
-        }
-        return;
     }
 }
 
@@ -238,6 +278,25 @@ esp_err_t remote_init(void)
     ir_set_handler(on_frame);
     ESP_LOGI(TAG, "listening on port %d", CONFIG_APP_REMOTE_PORT);
     return ESP_OK;
+}
+
+bool remote_track(uint32_t ip, char artist[REMOTE_TRACK_MAX], char title[REMOTE_TRACK_MAX])
+{
+    bool found = false;
+    if (!s_lock) {
+        return false;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    for (int i = 0; i < REMOTE_MAX_CLIENTS && !found; i++) {
+        client_t *c = &s_clients[i];
+        found = c->sock >= 0 && c->ready && c->ip == ip && (c->artist[0] || c->title[0]);
+        if (found) {
+            strlcpy(artist, c->artist, REMOTE_TRACK_MAX);
+            strlcpy(title, c->title, REMOTE_TRACK_MAX);
+        }
+    }
+    xSemaphoreGive(s_lock);
+    return found;
 }
 
 void remote_get(remote_status_t *out)

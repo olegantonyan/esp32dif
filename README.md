@@ -80,7 +80,8 @@ To turn it off for your user: `systemctl --user mask esp32dif-sink`.
 
 - **Password:** every 10 s the service logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the service logs an error and doesn't create the device.
 - **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the service follows it.
-- **Remote buttons:** the service also connects to the board on TCP 5005 and turns IR remote buttons into MPRIS commands over D-Bus: previous, play/pause, next. They go to the player that is playing, otherwise to the last one used, otherwise to a paused one. With two PCs connected, only the one streaming to the board gets them. Known remotes: Edifier S2000MKII (`ir keys`). Turn it off with `SPDIF_REMOTE=0`.
+- **Remote buttons:** the service also connects to the board on TCP 5005 and turns IR remote buttons into media player commands with `playerctl`: previous, play/pause, next. They go to the player you used last. With two PCs connected, only the one streaming to the board gets them. Known remotes: Edifier S2000MKII (`ir keys`). Turn it off with `SPDIF_REMOTE=0`.
+- **Track title:** over the same connection the service sends the artist and title of that player when the track changes. While this PC plays to the board, the OLED shows them in the bottom two rows (yellow on two-color modules) instead of uptime and heap; long ones scroll. Latin, accented Latin and Cyrillic letters are shown; other characters show as `?`.
 - **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
 
 ### Settings
@@ -100,7 +101,7 @@ Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (1
 
 ### Without the package
 
-If there is no package for your distro, link the files from this folder. The script needs `bash`, `pipewire`, `curl` and `nss-mdns`.
+If there is no package for your distro, link the files from this folder. The script needs `bash`, `pipewire`, `curl`, `playerctl` and `nss-mdns`.
 
 ```sh
 ln -s "$PWD/pipewire/esp32dif-sink" ~/.local/bin/esp32dif-sink

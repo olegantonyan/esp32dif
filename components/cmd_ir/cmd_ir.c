@@ -64,6 +64,13 @@ static int cmd_status(int argc, char **argv)
         char ip[16];
         printf("last    %s, %lld s ago, to %s\n", r.last_action, (esp_timer_get_time() - r.last_us) / 1000000, r.last_ip ? inet_ntoa_r(r.last_ip, ip, sizeof(ip)) : "nobody");
     }
+    static char artist[REMOTE_TRACK_MAX], title[REMOTE_TRACK_MAX];
+    for (int i = 0; i < r.clients; i++) {
+        if (remote_track(r.client_ip[i], artist, title)) {
+            char ip[16];
+            printf("track   %s: %s - %s\n", inet_ntoa_r(r.client_ip[i], ip, sizeof(ip)), artist, title);
+        }
+    }
     return 0;
 }
 

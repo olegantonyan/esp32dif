@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
 #include "sdkconfig.h"
@@ -33,3 +34,4 @@ esp_err_t oled_contrast(uint8_t level);
 void oled_idle(uint32_t seconds);
 void oled_wake(void);
 void oled_get(oled_state_t *out);
+size_t oled_from_utf8(char *dst, size_t len, const char *src);

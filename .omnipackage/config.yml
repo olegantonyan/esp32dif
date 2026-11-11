@@ -49,21 +49,21 @@ repositories:
 rpm: &rpm
   <<: *common
   build_dependencies: [systemd-rpm-macros]
-  runtime_dependencies: [pipewire, curl, nss-mdns]
+  runtime_dependencies: [pipewire, curl, playerctl, nss-mdns]
   rpm:
     spec_template: ".omnipackage/specfile.spec.liquid"
 
 deb: &deb
   <<: *common
   build_dependencies: []
-  runtime_dependencies: [pipewire, curl, libnss-mdns]
+  runtime_dependencies: [pipewire, curl, playerctl, libnss-mdns]
   deb:
     debian_templates: ".omnipackage/deb"
 
 pacman: &pacman
   <<: *common
   build_dependencies: []
-  runtime_dependencies: [pipewire, curl, nss-mdns]
+  runtime_dependencies: [pipewire, curl, playerctl, nss-mdns]
   pacman:
     pkgbuild_template: ".omnipackage/PKGBUILD.liquid"
 

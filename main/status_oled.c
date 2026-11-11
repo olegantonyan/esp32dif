@@ -6,11 +6,20 @@
 #include "ir.h"
 #include "net.h"
 #include "oled.h"
+#include "remote.h"
 #include "rtp.h"
 #include "settings.h"
 #include "status_oled.h"
 
 #define DIGI_BITS 24
+#define MARQUEE_STEP_US (250 * 1000)
+#define MARQUEE_PAUSE_STEPS 6
+#define MARQUEE_GAP 3
+
+typedef struct {
+    char artist[REMOTE_TRACK_MAX];
+    char title[REMOTE_TRACK_MAX];
+} track_t;
 
 static void audio_lines(char *format, char *source, size_t len)
 {
@@ -65,12 +74,12 @@ typedef struct {
     bool has_ip, associated, reconnect, ap_active;
     int ap_clients;
     settings_t cfg;
+    track_t track;
 } activity_t;
 
-static void wake_on_activity(const settings_t *cfg)
+static void wake_on_activity(const settings_t *cfg, const track_t *track)
 {
-    static activity_t last;
-    activity_t a;
+    static activity_t last, a;
     memset(&a, 0, sizeof(a));
     static ir_frame_t ir;
     ir_get(&ir);
@@ -90,18 +99,58 @@ static void wake_on_activity(const settings_t *cfg)
     a.ap_active = net_ap_active();
     a.ap_clients = net_ap_clients();
     a.cfg = *cfg;
+    a.track = *track;
     if (memcmp(&a, &last, sizeof(a))) {
         last = a;
         oled_wake();
     }
 }
 
+static bool current_track(track_t *t)
+{
+    static rtp_stats_t rtp;
+    static track_t raw;
+    memset(t, 0, sizeof(*t));
+    rtp_get(&rtp);
+    if (rtp.play_state == RTP_PLAY_IDLE || !remote_track(rtp.src_ip, raw.artist, raw.title)) {
+        return false;
+    }
+    oled_from_utf8(t->artist, sizeof(t->artist), raw.artist);
+    oled_from_utf8(t->title, sizeof(t->title), raw.title);
+    return true;
+}
+
+static void marquee(char *dst, size_t len, const char *text, int64_t elapsed_us)
+{
+    size_t n = strlen(text), cols = len - 1;
+    if (n <= cols) {
+        strlcpy(dst, text, len);
+        return;
+    }
+    size_t loop = n + MARQUEE_GAP;
+    size_t step = elapsed_us / MARQUEE_STEP_US % (loop + MARQUEE_PAUSE_STEPS);
+    size_t start = step < MARQUEE_PAUSE_STEPS ? 0 : step - MARQUEE_PAUSE_STEPS;
+    for (size_t i = 0; i < cols; i++) {
+        size_t k = (start + i) % loop;
+        dst[i] = k < n ? text[k] : ' ';
+    }
+    dst[cols] = '\0';
+}
+
 void status_oled_screen(oled_lines_t lines)
 {
-    uint32_t s = esp_timer_get_time() / 1000000;
+    static track_t track, shown;
+    static int64_t track_since_us;
+    int64_t now = esp_timer_get_time();
+    uint32_t s = now / 1000000;
     settings_t cfg;
     settings_get(&cfg);
-    wake_on_activity(&cfg);
+    bool playing = current_track(&track);
+    if (memcmp(&track, &shown, sizeof(track))) {
+        shown = track;
+        track_since_us = now;
+    }
+    wake_on_activity(&cfg, &track);
 
     audio_lines(lines[0], lines[1], sizeof(lines[0]));
     network_line(lines[2], sizeof(lines[2]));
@@ -115,9 +164,19 @@ void status_oled_screen(oled_lines_t lines)
         snprintf(lines[4], sizeof(lines[4]), "AP off");
     }
     snprintf(lines[5], sizeof(lines[5]), "pw %.18s", cfg.password);
-    snprintf(lines[6], sizeof(lines[6]), "up %ud %02u:%02u:%02u", (unsigned)(s / 86400), (unsigned)(s / 3600 % 24), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
-    snprintf(lines[7], sizeof(lines[7]), "heap %u KB free", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DEFAULT) / 1024));
+    if (playing) {
+        marquee(lines[6], sizeof(lines[6]), track.artist, now - track_since_us);
+        marquee(lines[7], sizeof(lines[7]), track.title, now - track_since_us);
+    } else {
+        snprintf(lines[6], sizeof(lines[6]), "up %ud %02u:%02u:%02u", (unsigned)(s / 86400), (unsigned)(s / 3600 % 24), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+        snprintf(lines[7], sizeof(lines[7]), "heap %u KB free", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DEFAULT) / 1024));
+    }
 #else
     snprintf(lines[3], sizeof(lines[3]), "pw %.18s", cfg.password);
+    if (playing) {
+        static char both[2 * REMOTE_TRACK_MAX + 3];
+        snprintf(both, sizeof(both), "%s%s%s", track.artist, track.artist[0] && track.title[0] ? " - " : "", track.title);
+        marquee(lines[1], sizeof(lines[1]), both, now - track_since_us);
+    }
 #endif
 }
