@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "spdif-switch")(type "KiCad")(uri "${KIPRJMOD}/spdif-switch.pretty")(options "")(descr "spdif-switch footprints"))
+)
