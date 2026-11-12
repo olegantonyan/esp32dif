@@ -49,9 +49,15 @@ mpris() {
 }
 
 send_tracks() {
-    local line
+    local line status id player
     while IFS= read -r line; do
-        printf 'track %s\n' "$line" || return
+        status=${line%%$'\t'*}
+        line=${line#*$'\t'}
+        id=${line%%$'\t'*}
+        line=${line#*$'\t'}
+        player=${id%%.instance*}
+        player=${player##*.}
+        printf 'track %s\t%s\t%s\t%s\n' "$line" "${player:0:20}" "$status" "${id:0:60}" || return
     done
 }
 
@@ -76,7 +82,7 @@ remote_loop() {
                 [ -n "$connected" ] || echo "esp32dif-sink: remote buttons connected"
                 connected=1
                 refused=
-                playerctl --follow metadata --format $'{{trunc(artist,60)}}\t{{trunc(title,60)}}' 2>/dev/null > >(send_tracks >&3) &
+                playerctl --follow metadata --format $'{{status}}\t{{playerInstance}}\t{{trunc(artist,60)}}\t{{trunc(title,60)}}' 2>/dev/null > >(send_tracks >&3) &
                 track_pid=$!
                 while read -r -t 75 action <&3; do
                     case $action in

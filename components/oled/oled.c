@@ -41,6 +41,9 @@ static const uint8_t *glyph(unsigned char c)
     if (c >= OLED_CYR_FIRST) {
         return font5x7_cyr[c - OLED_CYR_FIRST];
     }
+    if (c >= (unsigned char)OLED_ICON_PLAY && c < (unsigned char)OLED_ICON_PLAY + FONT5X7_ICON_COUNT) {
+        return font5x7_icons[c - (unsigned char)OLED_ICON_PLAY];
+    }
     if (c == OLED_CYR_YO || c == OLED_CYR_YO_SMALL) {
         return font5x7_cyr[FONT5X7_CYR_COUNT - (c == OLED_CYR_YO ? 2 : 1)];
     }

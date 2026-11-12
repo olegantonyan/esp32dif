@@ -16,7 +16,7 @@
 #define PING_US (30 * 1000 * 1000)
 #define REPRESS_US (300 * 1000)
 #define PASSWORD_LINE_MAX 72
-#define CLIENT_LINE_MAX 320
+#define CLIENT_LINE_MAX 448
 #define TRACK_CMD "track"
 
 typedef struct {
@@ -26,8 +26,7 @@ typedef struct {
     int64_t since_us;
     size_t len;
     char line[CLIENT_LINE_MAX];
-    char artist[REMOTE_TRACK_MAX];
-    char title[REMOTE_TRACK_MAX];
+    remote_track_t track;
 } client_t;
 
 static const char *TAG = "remote";
@@ -46,7 +45,7 @@ static void drop(client_t *c, const char *why)
     close(c->sock);
     c->sock = -1;
     c->ready = false;
-    c->artist[0] = c->title[0] = '\0';
+    memset(&c->track, 0, sizeof(c->track));
 }
 
 static bool send_line(client_t *c, const char *s)
@@ -160,12 +159,22 @@ static void copy_utf8(char *dst, size_t size, const char *src, size_t n)
     dst[n] = '\0';
 }
 
-static void set_track(client_t *c, const char *text)
+static const char *next_field(char *dst, size_t size, const char *text)
 {
     const char *tab = strchr(text, '\t');
-    const char *title = tab ? tab + 1 : text;
-    copy_utf8(c->artist, sizeof(c->artist), text, tab ? (size_t)(tab - text) : 0);
-    copy_utf8(c->title, sizeof(c->title), title, strlen(title));
+    size_t n = tab ? (size_t)(tab - text) : strlen(text);
+    copy_utf8(dst, size, text, n);
+    return text + n + (tab ? 1 : 0);
+}
+
+static void set_track(client_t *c, const char *text)
+{
+    remote_track_t *t = &c->track;
+    text = next_field(t->artist, sizeof(t->artist), text);
+    text = next_field(t->title, sizeof(t->title), text);
+    text = next_field(t->player, sizeof(t->player), text);
+    text = next_field(t->status, sizeof(t->status), text);
+    next_field(t->id, sizeof(t->id), text);
 }
 
 static void handle_line(client_t *c)
@@ -280,7 +289,7 @@ esp_err_t remote_init(void)
     return ESP_OK;
 }
 
-bool remote_track(uint32_t ip, char artist[REMOTE_TRACK_MAX], char title[REMOTE_TRACK_MAX])
+bool remote_track(uint32_t ip, remote_track_t *out)
 {
     bool found = false;
     if (!s_lock) {
@@ -289,10 +298,10 @@ bool remote_track(uint32_t ip, char artist[REMOTE_TRACK_MAX], char title[REMOTE_
     xSemaphoreTake(s_lock, portMAX_DELAY);
     for (int i = 0; i < REMOTE_MAX_CLIENTS && !found; i++) {
         client_t *c = &s_clients[i];
-        found = c->sock >= 0 && c->ready && c->ip == ip && (c->artist[0] || c->title[0]);
+        const remote_track_t *t = &c->track;
+        found = c->sock >= 0 && c->ready && c->ip == ip && (t->artist[0] || t->title[0] || t->player[0]);
         if (found) {
-            strlcpy(artist, c->artist, REMOTE_TRACK_MAX);
-            strlcpy(title, c->title, REMOTE_TRACK_MAX);
+            *out = *t;
         }
     }
     xSemaphoreGive(s_lock);

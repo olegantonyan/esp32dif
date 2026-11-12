@@ -7,6 +7,17 @@
 
 #define REMOTE_MAX_CLIENTS 2
 #define REMOTE_TRACK_MAX 128
+#define REMOTE_PLAYER_MAX 32
+#define REMOTE_STATUS_MAX 12
+#define REMOTE_ID_MAX 64
+
+typedef struct {
+    char artist[REMOTE_TRACK_MAX];
+    char title[REMOTE_TRACK_MAX];
+    char player[REMOTE_PLAYER_MAX];
+    char status[REMOTE_STATUS_MAX];
+    char id[REMOTE_ID_MAX];
+} remote_track_t;
 
 typedef struct {
     const char *remote;
@@ -29,4 +40,4 @@ esp_err_t remote_init(void);
 const remote_key_t *remote_lookup(const ir_frame_t *frame);
 const remote_key_t *remote_keys(size_t *count);
 void remote_get(remote_status_t *out);
-bool remote_track(uint32_t ip, char artist[REMOTE_TRACK_MAX], char title[REMOTE_TRACK_MAX]);
+bool remote_track(uint32_t ip, remote_track_t *out);

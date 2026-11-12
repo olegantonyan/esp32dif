@@ -120,7 +120,7 @@ function render(s) {
   document.title = s.hostname + ' - esp32dif';
   $('title').firstChild.textContent = s.hostname + '.local ';
   if (!hostFilled) { $('host').value = s.hostname; hostFilled = true; }
-  const sp = s.spdif, r = s.rtp, w = s.sta, ap = s.ap, o = s.ota;
+  const sp = s.spdif, r = s.rtp, w = s.sta, ap = s.ap, o = s.ota, p = s.player;
   const savedBand = w.saved_band === 'auto' ? 'band auto' : w.saved_band + ' GHz only';
   if (!wifiFilled && w.saved) { $('ssid').value = w.saved; $('band').value = w.saved_band; wifiFilled = true; }
   $('wsum').textContent = w.saved ? `saved: ${w.saved}, ${savedBand}` : 'no saved network';
@@ -133,6 +133,8 @@ function render(s) {
   rows([
     ['S/PDIF', sp.ready ? `${khz} kHz 24-bit` : 'off (no WM8804)'],
     ['Source', src],
+    p && ['Player', [p.status, p.name, p.id && `(${p.id})`].filter(Boolean).join(' ')],
+    p && (p.artist || p.title) && ['Track', [p.artist, p.title].filter(Boolean).join(' - ')],
     r.active && ['RTP loss', `${r.lost} lost of ${r.packets + r.lost} packets`],
     ['Senders', (r.senders.length ? r.senders.join(', ') : 'none authenticated') + (r.denied ? `; ${r.denied} packets denied` : '')],
     ['Wi-Fi', w.state + (w.ssid ? ` to ${w.ssid}` : '') + (w.rssi !== undefined ? `, ${w.rssi} dBm, ch ${w.channel} (${w.band} GHz)` : '')],

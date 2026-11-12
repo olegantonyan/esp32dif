@@ -10,6 +10,9 @@
 #define OLED_HEIGHT CONFIG_APP_OLED_HEIGHT
 #define OLED_COLS 21
 #define OLED_ROWS (OLED_HEIGHT / 8)
+#define OLED_ICON_PLAY '\x80'
+#define OLED_ICON_PAUSE '\x81'
+#define OLED_ICON_STOP '\x82'
 
 typedef char oled_lines_t[OLED_ROWS][OLED_COLS + 1];
 

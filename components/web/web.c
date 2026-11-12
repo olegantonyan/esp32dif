@@ -20,6 +20,7 @@
 #include "net.h"
 #include "ota.h"
 #include "rtp.h"
+#include "remote.h"
 #include "settings.h"
 #include "web.h"
 
@@ -148,6 +149,21 @@ static void status_json(out_t *o)
         put_ip(o, r.lease[i].ip);
     }
     put(o, "]}");
+
+    static remote_track_t t;
+    if (remote_track(r.src_ip, &t)) {
+        put(o, ",\"player\":{\"name\":");
+        put_str(o, t.player);
+        put(o, ",\"id\":");
+        put_str(o, t.id);
+        put(o, ",\"status\":");
+        put_str(o, t.status);
+        put(o, ",\"artist\":");
+        put_str(o, t.artist);
+        put(o, ",\"title\":");
+        put_str(o, t.title);
+        put(o, "}");
+    }
 
     wifi_ap_record_t ap;
     bool associated = net_associated() && esp_wifi_sta_get_ap_info(&ap) == ESP_OK;
