@@ -188,9 +188,11 @@ PiFi Digi+ 1.0, a HiFiBerry Digi+ clone. HAT pins are the physical pins of its 4
 | 35 | J3 pin 5 | `23` | I2S WS (LRCLK), HAT → ESP |
 | 40 | J3 pin 8 | `4` | I2S DOUT, ESP → HAT |
 | 39 | J3 pin 1 | `G` | ground, next to the I2S wires |
+| 22 | J3 pin 9 | `5` | S/PDIF monitor (optional, for `digi spdif`), HAT → ESP |
 
 - **Add 2.2 kΩ pull-ups** from SDA and SCL to 3V3. Without them, I2C fails while audio plays.
 - Leave HAT pin 1 (3V3) open: the HAT makes its own 3.3 V from 5V.
+- HAT pin 22 (BCM GPIO25) is unused by the HAT. For the S/PDIF monitor, solder a wire on the HAT from the optical transmitter's data pin to pin 22. Don't add a series resistor: the HAT's 200 Ω before the transmitter already protects TX0, and an extra 1 kΩ caused decode errors.
 - Run `digi probe` to check the wiring step by step. More notes: [docs/internals.md](docs/internals.md#digi-wiring-notes).
 
 ## OLED screen
