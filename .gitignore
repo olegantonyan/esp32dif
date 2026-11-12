@@ -19,3 +19,10 @@ __pycache__/
 *.swp
 *~
 .DS_Store
+
+# KiCad
+*.lck
+*-backups/
+fp-info-cache
+_autosave-*
+\#auto_saved_files\#
