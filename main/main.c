@@ -38,7 +38,8 @@ void app_main(void)
         ESP_LOGE(TAG, "led failed to start, continuing without it");
     }
     if (oled_init() == ESP_OK) {
-        oled_set_auto(status_oled_screen);
+        oled_set_auto(OLED_BACK, status_oled_back, 0);
+        oled_set_auto(OLED_FRONT, status_oled_front, STATUS_OLED_FRONT_BIG_ROWS);
     } else {
         ESP_LOGE(TAG, "oled failed to start, continuing without it");
     }

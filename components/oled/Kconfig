@@ -1,34 +1,64 @@
 menu "Board OLED"
 
-    config APP_OLED_ADDR
-        hex "I2C address"
+    config APP_OLED_BACK_ADDR
+        hex "Back display I2C address"
         default 0x3C
         range 0x3C 0x3D
         help
-            SSD1306 address: 0x3C on most modules, 0x3D when the module's address jumper is moved.
+            SSD1306 address: 0x3C on most modules, 0x3D when the module's address resistor is moved. 0.91" 128x32 modules are fixed at 0x3C.
 
-    choice APP_OLED_HEIGHT_CHOICE
-        prompt "Display height"
-        default APP_OLED_HEIGHT_64
+    choice APP_OLED_BACK_HEIGHT_CHOICE
+        prompt "Back display height"
+        default APP_OLED_BACK_HEIGHT_32
         help
             0.96" modules are 128x64; 0.91" ones are 128x32.
 
-        config APP_OLED_HEIGHT_64
+        config APP_OLED_BACK_HEIGHT_64
             bool "64 px"
-        config APP_OLED_HEIGHT_32
+        config APP_OLED_BACK_HEIGHT_32
             bool "32 px"
     endchoice
 
-    config APP_OLED_HEIGHT
+    config APP_OLED_BACK_HEIGHT
         int
-        default 64 if APP_OLED_HEIGHT_64
-        default 32 if APP_OLED_HEIGHT_32
+        default 64 if APP_OLED_BACK_HEIGHT_64
+        default 32 if APP_OLED_BACK_HEIGHT_32
+
+    config APP_OLED_BACK_FLIP
+        bool "Rotate back display 180 degrees"
+        default n
+
+    config APP_OLED_FRONT_ADDR
+        hex "Front display I2C address"
+        default 0x3D
+        range 0x3C 0x3D
+        help
+            Must differ from the back display's address.
+
+    choice APP_OLED_FRONT_HEIGHT_CHOICE
+        prompt "Front display height"
+        default APP_OLED_FRONT_HEIGHT_64
+
+        config APP_OLED_FRONT_HEIGHT_64
+            bool "64 px"
+        config APP_OLED_FRONT_HEIGHT_32
+            bool "32 px"
+    endchoice
+
+    config APP_OLED_FRONT_HEIGHT
+        int
+        default 64 if APP_OLED_FRONT_HEIGHT_64
+        default 32 if APP_OLED_FRONT_HEIGHT_32
+
+    config APP_OLED_FRONT_FLIP
+        bool "Rotate front display 180 degrees"
+        default y
 
     config APP_OLED_IDLE_S
         int "Turn off after idle seconds"
         default 120
         range 0 86400
         help
-            Display sleeps after this many seconds without activity to prevent burn-in. 0 = never.
+            Displays sleep after this many seconds without activity to prevent burn-in. 0 = never.
 
 endmenu

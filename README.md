@@ -7,7 +7,7 @@ Wi-Fi to S/PDIF receiver. The PC sends audio over Wi-Fi, and an ESP32-C5-DevKitC
 - Lossless 16/24-bit PCM, 32–192 kHz, bit-perfect when PipeWire does not change the audio.
 - Web UI, telnet and USB shell for setup and diagnostics.
 - Firmware updates over Wi-Fi (OTA) with automatic rollback.
-- Status on a small OLED screen.
+- Status and track title on two small OLED screens.
 
 Firmware: ESP-IDF 6.1. Technical details: [docs/internals.md](docs/internals.md). Digi+ bring-up notes: [docs/digi-bringup.md](docs/digi-bringup.md).
 
@@ -43,7 +43,7 @@ One password protects the web UI, telnet, the board's access point and audio sen
 | Telnet | `telnet esp32dif.local`. Same commands as USB, one session at a time, logout after 10 minutes without input. |
 | USB | `make monitor` |
 
-Change the hostname and password in the web UI, or with `config hostname <name>` and `config password <pw>`. The board saves them and uses them at once. The OLED shows the current password (128x64 always, 128x32 while the access point runs without Wi-Fi; if it's asleep, press a remote key or reboot), and `config password` works over USB, so you can't lock yourself out.
+Change the hostname and password in the web UI, or with `config hostname <name>` and `config password <pw>`. The board saves them and uses them at once. The back OLED shows the current password (128x64 always, 128x32 while the access point runs without Wi-Fi; if it's asleep, press a remote key or reboot), and `config password` works over USB, so you can't lock yourself out.
 
 The password travels as plain text over HTTP and telnet. This is fine on a home network, but not on networks you don't trust.
 
@@ -81,7 +81,7 @@ To turn it off for your user: `systemctl --user mask esp32dif-sink`.
 - **Password:** every 10 s the service logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the service logs an error and doesn't create the device.
 - **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the service follows it.
 - **Remote buttons:** the service also connects to the board on TCP 5005 and turns IR remote buttons into media player commands with `playerctl`: previous, play/pause, next. They go to the player you used last. With two PCs connected, only the one streaming to the board gets them. Known remotes: Edifier S2000MKII (`ir keys`). Turn it off with `SPDIF_REMOTE=0`.
-- **Track title:** over the same connection the service sends the artist, title, name and playback status of that player when any of them changes. While this PC is the board's last RTP source and the service stays connected, a 128x64 OLED shows a play/pause/stop icon with the player name and id, and `artist - title`, in the bottom two rows (yellow on two-color modules) instead of uptime and heap; long ones scroll. Latin, accented Latin and Cyrillic letters are shown; other characters show as `?`.
+- **Track title:** over the same connection the service sends the artist, title, name and playback status of that player when any of them changes. While this PC is the board's last RTP source and the service stays connected, the front OLED shows the artist, the title and a play/pause/stop icon with the player name and id in a double-height font; long ones scroll. Latin, accented Latin and Cyrillic letters are shown; other characters show as `?`.
 - **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
 
 ### Settings
@@ -161,7 +161,7 @@ Pins and I2C addresses can be changed in `idf.py menuconfig` (Board OLED, Board 
 
 ### OLED
 
-0.91" 128x32 SSD1306 I2C module (0.96" 128x64 also works). All four wires go to header **J1** (the header with `3V3` at pin 1, see the [DevKitC-1 user guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html)):
+Two SSD1306 I2C modules on the same bus: **back** 0.91" 128x32 at 0x3C (status), **front** 0.96" 128x64 at 0x3D (track). Both are wired in parallel to header **J1** (the header with `3V3` at pin 1, see the [DevKitC-1 user guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html)):
 
 | OLED pin | DevKitC-1 pin | Label on board |
 |---|---|---|
@@ -171,8 +171,9 @@ Pins and I2C addresses can be changed in `idf.py menuconfig` (Board OLED, Board 
 | SDA | J1 pin 9 | `8` |
 
 - Use 3V3, not 5V. With 5V the module's pull-ups would pull SDA/SCL to 5 V.
-- I2C address 0x3C (0x3D if the address jumper is moved). For 128x64 modules, change the height in menuconfig.
-- The board also works without the display.
+- 0.91" 128x32 modules are fixed at 0x3C (the panel has no address pin). Most 0.96" 128x64 modules have an address resistor on the back; move it to get 0x3D. `i2cscan` shows which addresses answer.
+- Addresses, heights and 180° rotation of both displays can be changed in menuconfig (Board OLED). The front is rotated by default.
+- The board also works with one display or none.
 
 ### Digi+ (WM8804 S/PDIF HAT)
 
@@ -182,8 +183,8 @@ PiFi Digi+ 1.0, a HiFiBerry Digi+ clone. HAT pins are the physical pins of its 4
 |---|---|---|---|
 | 2 | J1 pin 14 | `5V` | 5 V (the HAT makes its own 3.3 V) |
 | 6 | J1 pin 15 | `G` | ground |
-| 3 | J1 pin 9 | `8` | I2C SDA, shared with the OLED |
-| 5 | J1 pin 10 | `9` | I2C SCL, shared with the OLED |
+| 3 | J1 pin 9 | `8` | I2C SDA, shared with the OLEDs |
+| 5 | J1 pin 10 | `9` | I2C SCL, shared with the OLEDs |
 | 12 | J3 pin 4 | `24` | I2S BCLK, HAT → ESP |
 | 35 | J3 pin 5 | `23` | I2S WS (LRCLK), HAT → ESP |
 | 40 | J3 pin 8 | `4` | I2S DOUT, ESP → HAT |
@@ -195,31 +196,30 @@ PiFi Digi+ 1.0, a HiFiBerry Digi+ clone. HAT pins are the physical pins of its 4
 - HAT pin 22 (BCM GPIO25) is unused by the HAT. For the S/PDIF monitor, solder a wire on the HAT from the optical transmitter's data pin to pin 22. Don't add a series resistor: the HAT's 200 Ω before the transmitter already protects TX0, and an extra 1 kΩ caused decode errors.
 - Run `digi probe` to check the wiring step by step. More notes: [docs/internals.md](docs/internals.md#digi-wiring-notes).
 
-## OLED screen
+## OLED screens
 
-128x32:
+Back:
 
 ```
 48kHz 24-bit         format
 rtp 102ms buf        source: rtp, tone, idle; noI2C = no I2C to the WM8804
-192.168.0.21         IP address or Wi-Fi state; password while the access point is on without Wi-Fi
+192.168.0.21         IP address or Wi-Fi state; on 128x32 the password while the access point is on without Wi-Fi
 AP:- up 0d 01:02:03  access point clients (- = off), uptime
+esp32dif.local       128x64 only: hostname
+pw esp32dif-admin    128x64 only: password (first 18 characters)
+heap 312 KB free     128x64 only: free memory
 ```
 
-128x64:
+Front, while a PC sends the track title (see [Install](#install)), otherwise `no track`. Double-height font, 10 characters per line; longer text scrolls:
 
 ```
-48kHz 24-bit         format
-rtp 102ms buf        source: rtp, tone, idle; noI2C = no I2C to the WM8804
-192.168.0.21         IP address or Wi-Fi state
-esp32dif.local       hostname
-AP off               board's access point: off, or on with number of clients
-pw esp32dif-admin    password (first 18 characters)
-up 0d 01:02:03       uptime
-heap 312 KB free     free memory
+Pink Floyd           artist
+Shine On Y           title
+                     
+▶ mpz (org           playback status icon, player and id
 ```
 
-To prevent burn-in, the screen turns off after 2 minutes without activity. A remote key, a format or source change, a Wi-Fi or access point change, or any `oled` command wakes it. Change the timeout with `oled idle` or in menuconfig (Board OLED).
+To prevent burn-in, each screen turns off after 2 minutes without activity. A remote key, a format or source change, a Wi-Fi or access point change, or any `oled` command wakes it. Change the timeout with `oled idle` or in menuconfig (Board OLED).
 
 ## Shell commands
 
@@ -246,13 +246,14 @@ The same commands work on USB and telnet. Line editing, history, Tab completion 
 | `digi trim <ppm>` / `digi trimtest <ppm>` | adjust the WM8804 clock / test clock adjustment |
 | `ir status` / `ir keys` | IR line level, last frame and connected PCs / known remote buttons |
 | `ir watch [-r]` | print remote codes live (`-r`: pulse widths); add new buttons to `components/remote/keymap.c` |
-| `oled status` / `on` / `off` / `contrast <0-255>` / `idle <s>` | display state / power / contrast / turn off after s idle seconds (0 = never) |
-| `oled print <row> <text>` / `clear` / `auto` | write text / clear / back to the status screen |
+| `oled [back\|front] status` / `on` / `off` / `contrast <0-255>` / `idle <s>` | display state / power / contrast / turn off after s idle seconds (0 = never); both displays unless one is named |
+| `oled [back\|front] print <row> <text>` / `clear` / `auto` | write text / clear / back to the status screen |
 | `led color <color>` | color: name, `#rrggbb` or `r,g,b` (`led presets` lists names) |
 | `led blink\|breathe <color> [-p ms]` / `led rainbow [-p ms]` | effects |
 | `led off` / `led auto` / `led brightness <0-100>` / `led status` | LED control (off by default) |
 | `sysinfo` / `version` / `uptime` | chip, firmware and uptime information |
 | `free [-h]` / `ps` | memory / tasks |
+| `i2cscan` | addresses that answer on the I2C bus |
 | `reboot [-d ms]` | restart |
 
 LED and OLED changes made with commands are not saved; they reset at reboot.
