@@ -43,7 +43,7 @@ One password protects the web UI, telnet, the board's access point and audio sen
 | Telnet | `telnet esp32dif.local`. Same commands as USB, one session at a time, logout after 10 minutes without input. |
 | USB | `make monitor` |
 
-Change the hostname and password in the web UI, or with `config hostname <name>` and `config password <pw>`. The board saves them and uses them at once. The OLED always shows the current password, so you can't lock yourself out (if it's asleep, press a remote key or reboot).
+Change the hostname and password in the web UI, or with `config hostname <name>` and `config password <pw>`. The board saves them and uses them at once. The OLED shows the current password (128x64 always, 128x32 while the access point runs without Wi-Fi; if it's asleep, press a remote key or reboot), and `config password` works over USB, so you can't lock yourself out.
 
 The password travels as plain text over HTTP and telnet. This is fine on a home network, but not on networks you don't trust.
 
@@ -81,7 +81,7 @@ To turn it off for your user: `systemctl --user mask esp32dif-sink`.
 - **Password:** every 10 s the service logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the service logs an error and doesn't create the device.
 - **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the service follows it.
 - **Remote buttons:** the service also connects to the board on TCP 5005 and turns IR remote buttons into media player commands with `playerctl`: previous, play/pause, next. They go to the player you used last. With two PCs connected, only the one streaming to the board gets them. Known remotes: Edifier S2000MKII (`ir keys`). Turn it off with `SPDIF_REMOTE=0`.
-- **Track title:** over the same connection the service sends the artist, title, name and playback status of that player when any of them changes. While this PC is the board's last RTP source and the service stays connected, the OLED shows a play/pause/stop icon with the player name and id, and `artist - title`, in the bottom two rows (yellow on two-color modules) instead of uptime and heap; long ones scroll. Latin, accented Latin and Cyrillic letters are shown; other characters show as `?`.
+- **Track title:** over the same connection the service sends the artist, title, name and playback status of that player when any of them changes. While this PC is the board's last RTP source and the service stays connected, a 128x64 OLED shows a play/pause/stop icon with the player name and id, and `artist - title`, in the bottom two rows (yellow on two-color modules) instead of uptime and heap; long ones scroll. Latin, accented Latin and Cyrillic letters are shown; other characters show as `?`.
 - **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
 
 ### Settings
@@ -161,7 +161,7 @@ Pins and I2C addresses can be changed in `idf.py menuconfig` (Board OLED, Board 
 
 ### OLED
 
-0.96" 128x64 SSD1306 I2C module. All four wires go to header **J1** (the header with `3V3` at pin 1, see the [DevKitC-1 user guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html)):
+0.91" 128x32 SSD1306 I2C module (0.96" 128x64 also works). All four wires go to header **J1** (the header with `3V3` at pin 1, see the [DevKitC-1 user guide](https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32c5/esp32-c5-devkitc-1/user_guide.html)):
 
 | OLED pin | DevKitC-1 pin | Label on board |
 |---|---|---|
@@ -171,7 +171,7 @@ Pins and I2C addresses can be changed in `idf.py menuconfig` (Board OLED, Board 
 | SDA | J1 pin 9 | `8` |
 
 - Use 3V3, not 5V. With 5V the module's pull-ups would pull SDA/SCL to 5 V.
-- I2C address 0x3C (0x3D if the address jumper is moved). For 0.91" 128x32 modules, change the height in menuconfig.
+- I2C address 0x3C (0x3D if the address jumper is moved). For 128x64 modules, change the height in menuconfig.
 - The board also works without the display.
 
 ### Digi+ (WM8804 S/PDIF HAT)
@@ -197,6 +197,17 @@ PiFi Digi+ 1.0, a HiFiBerry Digi+ clone. HAT pins are the physical pins of its 4
 
 ## OLED screen
 
+128x32:
+
+```
+48kHz 24-bit         format
+rtp 102ms buf        source: rtp, tone, idle; noI2C = no I2C to the WM8804
+192.168.0.21         IP address or Wi-Fi state; password while the access point is on without Wi-Fi
+AP:- up 0d 01:02:03  access point clients (- = off), uptime
+```
+
+128x64:
+
 ```
 48kHz 24-bit         format
 rtp 102ms buf        source: rtp, tone, idle; noI2C = no I2C to the WM8804
@@ -207,8 +218,6 @@ pw esp32dif-admin    password (first 18 characters)
 up 0d 01:02:03       uptime
 heap 312 KB free     free memory
 ```
-
-On 128x32 displays: format, source, IP address, password.
 
 To prevent burn-in, the screen turns off after 2 minutes without activity. A remote key, a format or source change, a Wi-Fi or access point change, or any `oled` command wakes it. Change the timeout with `oled idle` or in menuconfig (Board OLED).
 

@@ -136,6 +136,13 @@ static bool current_track(track_t *t)
     return true;
 }
 
+static void uptime_line(char *line, size_t len, const char *prefix, int64_t now)
+{
+    uint32_t s = now / 1000000;
+    snprintf(line, len, "%sup %ud %02u:%02u:%02u", prefix, (unsigned)(s / 86400), (unsigned)(s / 3600 % 24), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+}
+
+#if OLED_ROWS > 4
 static void marquee(char *dst, size_t len, const char *text, int64_t elapsed_us)
 {
     size_t n = strlen(text), cols = len - 1;
@@ -164,45 +171,56 @@ static void icon_marquee(char *dst, size_t len, char icon, const char *text, int
     marquee(dst, len, text, elapsed_us);
 }
 
-void status_oled_screen(oled_lines_t lines)
+static void lower_rows(oled_lines_t lines, const settings_t *cfg, const track_t *track, bool has_track, int64_t now)
 {
-    static track_t track, shown;
+    static track_t shown;
     static int64_t track_since_us;
-    int64_t now = esp_timer_get_time();
-    uint32_t s = now / 1000000;
-    settings_t cfg;
-    settings_get(&cfg);
-    bool has_track = current_track(&track);
-    shown.icon = track.icon;
-    if (memcmp(&track, &shown, sizeof(track))) {
-        shown = track;
+    shown.icon = track->icon;
+    if (memcmp(track, &shown, sizeof(*track))) {
+        shown = *track;
         track_since_us = now;
     }
-    wake_on_activity(&cfg, &track);
-
-    audio_lines(lines[0], lines[1], sizeof(lines[0]));
-    network_line(lines[2], sizeof(lines[2]));
-    strlcpy(lines[3], cfg.hostname, sizeof(lines[3]));
+    strlcpy(lines[3], cfg->hostname, sizeof(lines[3]));
     strlcat(lines[3], ".local", sizeof(lines[3]));
-#if OLED_ROWS > 4
     if (net_ap_active()) {
         int n = net_ap_clients();
         snprintf(lines[4], sizeof(lines[4]), "AP on, %d client%s", n, n == 1 ? "" : "s");
     } else {
         snprintf(lines[4], sizeof(lines[4]), "AP off");
     }
-    snprintf(lines[5], sizeof(lines[5]), "pw %.18s", cfg.password);
+    snprintf(lines[5], sizeof(lines[5]), "pw %.18s", cfg->password);
     if (has_track) {
-        icon_marquee(lines[6], sizeof(lines[6]), track.icon, track.player, now - track_since_us);
-        marquee(lines[7], sizeof(lines[7]), track.song, now - track_since_us);
+        icon_marquee(lines[6], sizeof(lines[6]), track->icon, track->player, now - track_since_us);
+        marquee(lines[7], sizeof(lines[7]), track->song, now - track_since_us);
     } else {
-        snprintf(lines[6], sizeof(lines[6]), "up %ud %02u:%02u:%02u", (unsigned)(s / 86400), (unsigned)(s / 3600 % 24), (unsigned)(s / 60 % 60), (unsigned)(s % 60));
+        uptime_line(lines[6], sizeof(lines[6]), "", now);
         snprintf(lines[7], sizeof(lines[7]), "heap %u KB free", (unsigned)(heap_caps_get_free_size(MALLOC_CAP_DEFAULT) / 1024));
     }
+}
 #else
-    snprintf(lines[3], sizeof(lines[3]), "pw %.18s", cfg.password);
-    if (has_track) {
-        icon_marquee(lines[1], sizeof(lines[1]), track.icon, track.song, now - track_since_us);
+static void lower_rows(oled_lines_t lines, const settings_t *cfg, const track_t *track, bool has_track, int64_t now)
+{
+    char ap[16] = "AP:- ";
+    if (net_ap_active()) {
+        snprintf(ap, sizeof(ap), "AP:%d ", net_ap_clients());
+        if (!net_has_ip()) {
+            snprintf(lines[2], sizeof(lines[2]), "pw %.18s", cfg->password);
+        }
     }
+    uptime_line(lines[3], sizeof(lines[3]), ap, now);
+}
 #endif
+
+void status_oled_screen(oled_lines_t lines)
+{
+    static track_t track;
+    int64_t now = esp_timer_get_time();
+    settings_t cfg;
+    settings_get(&cfg);
+    bool has_track = current_track(&track);
+    wake_on_activity(&cfg, &track);
+
+    audio_lines(lines[0], lines[1], sizeof(lines[0]));
+    network_line(lines[2], sizeof(lines[2]));
+    lower_rows(lines, &cfg, &track, has_track, now);
 }
