@@ -30,7 +30,7 @@ static void print_frame(const ir_frame_t *f, bool raw)
     } else {
         const remote_key_t *key = remote_lookup(f);
         printf(" addr 0x%04x cmd 0x%02x code 0x%08lx%s", f->addr, f->cmd, (unsigned long)f->code, f->valid ? "" : " (bad checksum)");
-        printf(key ? "  %s %s\n" : "\n", key ? key->remote : "", key ? key->action : "");
+        printf(key ? "  %s %s\n" : "\n", key ? key->remote : "", key ? remote_action_name(key->action) : "");
     }
     if (!raw) {
         return;
@@ -106,7 +106,7 @@ static int cmd_keys(int argc, char **argv)
     size_t n;
     const remote_key_t *keys = remote_keys(&n);
     for (size_t i = 0; i < n; i++) {
-        printf("%-20s %-7s addr 0x%04x cmd 0x%02x  %s\n", keys[i].remote, ir_proto_name(keys[i].proto), keys[i].addr, keys[i].cmd, keys[i].action);
+        printf("%-20s %-7s addr 0x%04x cmd 0x%02x  %s\n", keys[i].remote, ir_proto_name(keys[i].proto), keys[i].addr, keys[i].cmd, remote_action_name(keys[i].action));
     }
     return 0;
 }

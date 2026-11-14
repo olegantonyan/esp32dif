@@ -2,9 +2,9 @@
 #include "remote.h"
 
 static const remote_key_t s_keys[] = {
-    { "edifier-s2000mkii", IR_NEC, 0xe710, 0x54, "previous" },
-    { "edifier-s2000mkii", IR_NEC, 0xe710, 0x50, "play-pause" },
-    { "edifier-s2000mkii", IR_NEC, 0xe710, 0x13, "next" },
+    { "edifier-s2000mkii", IR_NEC, 0xe710, 0x54, REMOTE_PREVIOUS },
+    { "edifier-s2000mkii", IR_NEC, 0xe710, 0x50, REMOTE_PLAY_PAUSE },
+    { "edifier-s2000mkii", IR_NEC, 0xe710, 0x13, REMOTE_NEXT },
 };
 
 const remote_key_t *remote_lookup(const ir_frame_t *f)

@@ -21,6 +21,8 @@ typedef struct {
     char title[REMOTE_TRACK_MAX];
     char player[REMOTE_PLAYER_MAX + REMOTE_ID_MAX + 3];
     char icon;
+    int8_t volume;
+    bool muted;
 } track_t;
 
 static void audio_lines(char *format, char *source, size_t len)
@@ -134,6 +136,8 @@ static bool current_track(track_t *t)
     snprintf(text, sizeof(text), raw.id[0] ? "%s (%s)" : "%s", raw.player, raw.id);
     oled_from_utf8(t->player, sizeof(t->player), text);
     t->icon = status_icon(raw.status);
+    t->volume = raw.volume;
+    t->muted = raw.muted;
     return true;
 }
 
@@ -213,6 +217,8 @@ void status_oled_front(oled_lines_t lines, int rows)
     bool has_track = refresh(&cfg, &track);
     int64_t now = esp_timer_get_time();
     shown.icon = track.icon;
+    shown.volume = track.volume;
+    shown.muted = track.muted;
     if (memcmp(&track, &shown, sizeof(track))) {
         shown = track;
         since_us = now;
@@ -226,6 +232,11 @@ void status_oled_front(oled_lines_t lines, int rows)
     if (rows >= 8) {
         marquee(lines[0], len, track.artist, elapsed);
         marquee(lines[2], len, track.title, elapsed);
+        if (track.muted) {
+            strlcpy(lines[4], "vol muted", len);
+        } else if (track.volume >= 0) {
+            snprintf(lines[4], len, "vol %d%%", track.volume);
+        }
     } else {
         marquee(lines[0], len, track.title, elapsed);
     }

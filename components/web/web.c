@@ -162,6 +162,9 @@ static void status_json(out_t *o)
         put_str(o, t.artist);
         put(o, ",\"title\":");
         put_str(o, t.title);
+        if (t.volume >= 0) {
+            put(o, ",\"volume\":%d,\"muted\":%s", t.volume, t.muted ? "true" : "false");
+        }
         put(o, "}");
     }
 
@@ -413,6 +416,28 @@ static esp_err_t handle_rtp_allow(httpd_req_t *req)
     return reply(req, "200 OK", msg);
 }
 
+static esp_err_t handle_player(httpd_req_t *req)
+{
+    char form[FORM_SIZE], name[16];
+    remote_action_t action;
+    if (!authorized(req)) {
+        return ESP_OK;
+    }
+    if (!read_form(req, form, sizeof(form))) {
+        return ESP_FAIL;
+    }
+    if (!field(form, "action", name, sizeof(name)) || !remote_action_from_name(name, &action)) {
+        return reply(req, "400 Bad Request", "action: previous, play-pause, next, volume-up, volume-down or mute");
+    }
+    int sent = remote_send(action);
+    if (!sent) {
+        return reply(req, "409 Conflict", "no PC connected");
+    }
+    char msg[32];
+    snprintf(msg, sizeof(msg), "sent to %d PC%s", sent, sent == 1 ? "" : "s");
+    return reply(req, "200 OK", msg);
+}
+
 static esp_err_t upload_error(httpd_req_t *req, const char *status, const char *msg)
 {
     httpd_resp_set_hdr(req, "Connection", "close");
@@ -489,6 +514,7 @@ esp_err_t web_start(void)
         { .uri = "/api/settings", .method = HTTP_POST, .handler = handle_settings },
         { .uri = "/api/reboot", .method = HTTP_POST, .handler = handle_reboot },
         { .uri = "/api/rtp/allow", .method = HTTP_POST, .handler = handle_rtp_allow },
+        { .uri = "/api/player", .method = HTTP_POST, .handler = handle_player },
         { .uri = "/api/update", .method = HTTP_POST, .handler = handle_update },
     };
     for (size_t i = 0; i < sizeof(uris) / sizeof(uris[0]); i++) {

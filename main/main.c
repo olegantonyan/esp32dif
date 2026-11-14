@@ -20,6 +20,7 @@
 #include "cmd_rtp.h"
 #include "ir.h"
 #include "cmd_ir.h"
+#include "cmd_player.h"
 #include "remote.h"
 #include "status_led.h"
 #include "status_oled.h"
@@ -65,6 +66,7 @@ void app_main(void)
     ESP_ERROR_CHECK(cmd_config_register());
     ESP_ERROR_CHECK(cmd_ota_register());
     ESP_ERROR_CHECK(cmd_ir_register());
+    ESP_ERROR_CHECK(cmd_player_register());
     if (net && web_start() != ESP_OK) {
         ESP_LOGE(TAG, "web UI failed to start, continuing without it");
     }

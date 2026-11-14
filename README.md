@@ -80,8 +80,8 @@ To turn it off for your user: `systemctl --user mask esp32dif-sink`.
 
 - **Password:** every 10 s the service logs in to the board with `SPDIF_PASSWORD` (default `esp32dif-admin`). The board plays audio only from computers that logged in during the last 60 s. With a wrong password, the service logs an error and doesn't create the device.
 - **Board offline:** the device disappears about 30 s after the board stops answering, and comes back about 10 s after the board returns. If the board's IP address changes, the service follows it.
-- **Remote buttons:** the service also connects to the board on TCP 5005 and turns IR remote buttons into media player commands with `playerctl`: previous, play/pause, next. They go to the player you used last. With two PCs connected, only the one streaming to the board gets them. Known remotes: Edifier S2000MKII (`ir keys`). Turn it off with `SPDIF_REMOTE=0`.
-- **Track title:** over the same connection the service sends the artist, title, name and playback status of that player when any of them changes. While this PC is the board's last RTP source and the service stays connected, the front OLED shows the artist, the title and a play/pause/stop icon with the player name and id in a double-height font; long ones scroll. Latin, accented Latin and Cyrillic letters are shown; other characters show as `?`.
+- **Remote buttons:** the service also connects to the board on TCP 5005 and turns IR remote buttons, the board's `player` command and the web UI's Player buttons into media player commands with `playerctl`: previous, play/pause, next. They go to the player you used last. Volume up/down and mute change the volume of this PC's `esp32dif-rtp` device with `pactl` (steps of `SPDIF_VOLUME_STEP` %, up to 100 %); the audio stays bit-perfect only at 100 %. With two PCs connected, only the one streaming to the board gets them. Known remotes: Edifier S2000MKII (`ir keys`). Turn it off with `SPDIF_REMOTE=0`.
+- **Track title:** over the same connection the service sends the artist, title, name and playback status of that player when any of them changes. While this PC is the board's last RTP source and the service stays connected, the front OLED shows the artist, the title and a play/pause/stop icon with the player name and id in a double-height font; long ones scroll. Between them it shows the device volume (`vol 45%` or `vol muted`), however you change it. Latin, accented Latin and Cyrillic letters are shown; other characters show as `?`.
 - **Firewall:** allow mDNS on the PC (`firewall-cmd --permanent --zone=public --add-service=mdns`, then `firewall-cmd --reload`). Without it, `esp32dif.local` doesn't work; use the IP address instead.
 
 ### Settings
@@ -97,11 +97,11 @@ SPDIF_PASSWORD=esp32dif-admin
 
 Run `chmod 600` on this file, because it has the password. Apply changes with `systemctl --user restart esp32dif-sink`. When you change the board's hostname or password, change them here too.
 
-Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (10), `SPDIF_MISSES` (3), `SPDIF_REMOTE` (1), `SPDIF_REMOTE_PORT` (5005).
+Other settings: `SPDIF_PORT` (5004), `SPDIF_SAP_PORT` (9875), `SPDIF_CHECK_S` (10), `SPDIF_MISSES` (3), `SPDIF_REMOTE` (1), `SPDIF_REMOTE_PORT` (5005), `SPDIF_VOLUME_STEP` (5).
 
 ### Without the package
 
-If there is no package for your distro, link the files from this folder. The script needs `bash`, `pipewire`, `curl`, `playerctl` and `nss-mdns`.
+If there is no package for your distro, link the files from this folder. The script needs `bash`, `pipewire`, `curl`, `playerctl`, `pactl` (`pulseaudio-utils`, `libpulse` on Arch) and `nss-mdns`.
 
 ```sh
 ln -s "$PWD/pipewire/esp32dif-sink" ~/.local/bin/esp32dif-sink
@@ -245,6 +245,7 @@ The same commands work on USB and telnet. Line editing, history, Tab completion 
 | `digi decode [-d]` | decode any S/PDIF signal on the monitor pin (`-d`: print all frames) |
 | `digi trim <ppm>` / `digi trimtest <ppm>` | adjust the WM8804 clock / test clock adjustment |
 | `ir status` / `ir keys` | IR line level, last frame and connected PCs / known remote buttons |
+| `player prev\|play\|next` / `vol+\|vol-\|mute` / `status` | control the PC media player / PC device volume / connected PCs, track and volume |
 | `ir watch [-r]` | print remote codes live (`-r`: pulse widths); add new buttons to `components/remote/keymap.c` |
 | `oled [back\|front] status` / `on` / `off` / `contrast <0-255>` / `idle <s>` | display state / power / contrast / turn off after s idle seconds (0 = never); both displays unless one is named |
 | `oled [back\|front] print <row> <text>` / `clear` / `auto` | write text / clear / back to the status screen |

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esp_check.h"
 #include "esp_log.h"
@@ -15,9 +16,9 @@
 #define AUTH_TIMEOUT_US (5 * 1000 * 1000)
 #define PING_US (30 * 1000 * 1000)
 #define REPRESS_US (300 * 1000)
+#define HOLD_REPEAT_US (200 * 1000)
 #define PASSWORD_LINE_MAX 72
 #define CLIENT_LINE_MAX 448
-#define TRACK_CMD "track"
 
 typedef struct {
     int sock;
@@ -31,11 +32,31 @@ typedef struct {
 
 static const char *TAG = "remote";
 
+static const struct {
+    const char *name;
+    bool repeat;
+} s_actions[] = {
+    [REMOTE_PREVIOUS] = { "previous", false },
+    [REMOTE_PLAY_PAUSE] = { "play-pause", false },
+    [REMOTE_NEXT] = { "next", false },
+    [REMOTE_VOLUME_UP] = { "volume-up", true },
+    [REMOTE_VOLUME_DOWN] = { "volume-down", true },
+    [REMOTE_MUTE] = { "mute", false },
+};
+
 static SemaphoreHandle_t s_lock;
 static client_t s_clients[REMOTE_MAX_CLIENTS];
 static remote_status_t s_status;
 static const remote_key_t *s_last_key;
 static int64_t s_last_frame_us;
+static int64_t s_last_sent_us;
+static rtp_stats_t s_rtp;
+
+static void reset_track(client_t *c)
+{
+    memset(&c->track, 0, sizeof(c->track));
+    c->track.volume = -1;
+}
 
 static void drop(client_t *c, const char *why)
 {
@@ -45,7 +66,7 @@ static void drop(client_t *c, const char *why)
     close(c->sock);
     c->sock = -1;
     c->ready = false;
-    memset(&c->track, 0, sizeof(c->track));
+    reset_track(c);
 }
 
 static bool send_line(client_t *c, const char *s)
@@ -58,6 +79,52 @@ static bool send_line(client_t *c, const char *s)
     return false;
 }
 
+const char *remote_action_name(remote_action_t action)
+{
+    return (size_t)action < sizeof(s_actions) / sizeof(s_actions[0]) ? s_actions[action].name : "?";
+}
+
+bool remote_action_from_name(const char *name, remote_action_t *out)
+{
+    for (size_t i = 0; i < sizeof(s_actions) / sizeof(s_actions[0]); i++) {
+        if (!strcmp(name, s_actions[i].name)) {
+            *out = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+int remote_send(remote_action_t action)
+{
+    int sent = 0;
+    if (!s_lock) {
+        return 0;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    rtp_get(&s_rtp);
+    bool source_connected = false;
+    for (int i = 0; i < REMOTE_MAX_CLIENTS; i++) {
+        source_connected |= s_clients[i].sock >= 0 && s_clients[i].ready && s_clients[i].ip == s_rtp.src_ip;
+    }
+    s_status.last_ip = 0;
+    for (int i = 0; i < REMOTE_MAX_CLIENTS; i++) {
+        client_t *c = &s_clients[i];
+        if (c->sock < 0 || !c->ready || (source_connected && c->ip != s_rtp.src_ip)) {
+            continue;
+        }
+        if (send_line(c, remote_action_name(action))) {
+            sent++;
+            s_status.sent++;
+            s_status.last_ip = c->ip;
+        }
+    }
+    s_status.last_action = remote_action_name(action);
+    s_status.last_us = esp_timer_get_time();
+    xSemaphoreGive(s_lock);
+    return sent;
+}
+
 static void on_frame(const ir_frame_t *f)
 {
     const remote_key_t *key = remote_lookup(f);
@@ -66,31 +133,16 @@ static void on_frame(const ir_frame_t *f)
     if (key || f->proto == IR_REPEAT) {
         s_last_frame_us = now;
     }
-    if (!key || f->proto == IR_REPEAT || held) {
+    if (!key) {
+        return;
+    }
+    bool skip = s_actions[key->action].repeat ? (f->proto == IR_REPEAT && !held) || (held && now - s_last_sent_us < HOLD_REPEAT_US) : f->proto == IR_REPEAT || held;
+    if (skip) {
         return;
     }
     s_last_key = key;
-
-    static rtp_stats_t rtp;
-    rtp_get(&rtp);
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    bool source_connected = false;
-    for (int i = 0; i < REMOTE_MAX_CLIENTS; i++) {
-        source_connected |= s_clients[i].sock >= 0 && s_clients[i].ready && s_clients[i].ip == rtp.src_ip;
-    }
-    for (int i = 0; i < REMOTE_MAX_CLIENTS; i++) {
-        client_t *c = &s_clients[i];
-        if (c->sock < 0 || !c->ready || (source_connected && c->ip != rtp.src_ip)) {
-            continue;
-        }
-        if (send_line(c, key->action)) {
-            s_status.sent++;
-            s_status.last_ip = c->ip;
-        }
-    }
-    s_status.last_action = key->action;
-    s_status.last_us = now;
-    xSemaphoreGive(s_lock);
+    s_last_sent_us = now;
+    remote_send(key->action);
 }
 
 static void set_options(int sock)
@@ -127,6 +179,7 @@ static void accept_client(int listener)
     }
     set_options(sock);
     *slot = (client_t){ .sock = sock, .ip = addr.sin_addr.s_addr, .since_us = esp_timer_get_time() };
+    reset_track(slot);
 }
 
 static void check_password(client_t *c)
@@ -177,11 +230,31 @@ static void set_track(client_t *c, const char *text)
     next_field(t->id, sizeof(t->id), text);
 }
 
+static void set_volume(client_t *c, const char *text)
+{
+    char *end;
+    long v = strtol(text, &end, 10);
+    bool ok = end != text && v >= 0 && v <= 100;
+    c->track.volume = ok ? v : -1;
+    c->track.muted = ok && !strcmp(end, " muted");
+}
+
+static const char *args_of(const char *line, const char *cmd)
+{
+    size_t n = strlen(cmd);
+    if (strncmp(line, cmd, n) || (line[n] != ' ' && line[n] != '\0')) {
+        return NULL;
+    }
+    return line[n] ? line + n + 1 : "";
+}
+
 static void handle_line(client_t *c)
 {
-    size_t n = strlen(TRACK_CMD);
-    if (!strncmp(c->line, TRACK_CMD, n) && (c->line[n] == ' ' || c->line[n] == '\0')) {
-        set_track(c, c->line[n] ? c->line + n + 1 : "");
+    const char *args;
+    if ((args = args_of(c->line, "track"))) {
+        set_track(c, args);
+    } else if ((args = args_of(c->line, "volume"))) {
+        set_volume(c, args);
     }
 }
 
@@ -299,7 +372,7 @@ bool remote_track(uint32_t ip, remote_track_t *out)
     for (int i = 0; i < REMOTE_MAX_CLIENTS && !found; i++) {
         client_t *c = &s_clients[i];
         const remote_track_t *t = &c->track;
-        found = c->sock >= 0 && c->ready && c->ip == ip && (t->artist[0] || t->title[0] || t->player[0]);
+        found = c->sock >= 0 && c->ready && c->ip == ip && (t->artist[0] || t->title[0] || t->player[0] || t->volume >= 0);
         if (found) {
             *out = *t;
         }

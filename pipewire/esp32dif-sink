@@ -1,6 +1,6 @@
 #!/bin/bash
 # Usage: pipewire/esp32dif-sink [host] [rate] [format]   e.g. pipewire/esp32dif-sink esp32dif.local 48000 S24BE
-# Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT, SPDIF_PASSWORD, SPDIF_REMOTE (the service reads them from ~/.config/esp32dif-sink.conf)
+# Defaults come from SPDIF_HOST, SPDIF_RATE, SPDIF_FORMAT, SPDIF_PASSWORD, SPDIF_REMOTE, SPDIF_VOLUME_STEP (the service reads them from ~/.config/esp32dif-sink.conf)
 set -u
 
 host=${1:-${SPDIF_HOST:-esp32dif.local}}
@@ -13,6 +13,8 @@ misses=${SPDIF_MISSES:-3}
 password=${SPDIF_PASSWORD:-esp32dif-admin}
 remote=${SPDIF_REMOTE:-1}
 remote_port=${SPDIF_REMOTE_PORT:-5005}
+volume_step=${SPDIF_VOLUME_STEP:-5}
+node=esp32dif-rtp
 
 conf=$(mktemp --suffix=.conf)
 pid=
@@ -48,6 +50,51 @@ mpris() {
     playerctl "$1" 2>/dev/null || echo "esp32dif-sink: remote $1: no media player"
 }
 
+sink_volume() {
+    pactl get-sink-volume "$node" 2>/dev/null | cut -d/ -f2 -s | tr -d ' %' | head -n1
+}
+
+change_volume() {
+    local v
+    v=$(sink_volume)
+    if [ -z "$v" ]; then
+        echo "esp32dif-sink: remote $1: no $node sink"
+    elif [ "$1" = volume-down ]; then
+        pactl set-sink-volume "$node" "-$volume_step%"
+    elif [ $((v + volume_step)) -gt 100 ]; then
+        pactl set-sink-volume "$node" 100%
+    else
+        pactl set-sink-volume "$node" "+$volume_step%"
+    fi
+}
+
+volume_line() {
+    local v
+    v=$(sink_volume)
+    if [ -z "$v" ]; then
+        echo volume
+    elif [ "$(pactl get-sink-mute "$node" 2>/dev/null)" = "Mute: yes" ]; then
+        echo "volume $v muted"
+    else
+        echo "volume $v"
+    fi
+}
+
+send_volume() {
+    local event line last=
+    while :; do
+        line=$(volume_line)
+        if [ "$line" != "$last" ]; then
+            last=$line
+            printf '%s\n' "$line" || return
+        fi
+        while IFS= read -r event; do
+            [[ $event == *" on sink #"* ]] && continue 2
+        done
+        return
+    done
+}
+
 send_tracks() {
     local line status id player
     while IFS= read -r line; do
@@ -61,17 +108,17 @@ send_tracks() {
     done
 }
 
-track_pid=
-stop_track() {
-    if [ -n "$track_pid" ]; then
-        kill "$track_pid" 2>/dev/null
-        wait "$track_pid" 2>/dev/null
+feed_pids=()
+stop_feeds() {
+    if [ ${#feed_pids[@]} -gt 0 ]; then
+        kill "${feed_pids[@]}" 2>/dev/null
+        wait "${feed_pids[@]}" 2>/dev/null
     fi
-    track_pid=
+    feed_pids=()
 }
 
 remote_loop() {
-    trap 'stop_track; exit 0' TERM
+    trap 'stop_feeds; exit 0' TERM
     local ip= reply= action= connected= refused=
     while :; do
         ip=$(resolve)
@@ -83,13 +130,17 @@ remote_loop() {
                 connected=1
                 refused=
                 playerctl --follow metadata --format $'{{status}}\t{{playerInstance}}\t{{trunc(artist,60)}}\t{{trunc(title,60)}}' 2>/dev/null > >(send_tracks >&3) &
-                track_pid=$!
+                feed_pids+=($!)
+                pactl subscribe 2>/dev/null > >(send_volume >&3) &
+                feed_pids+=($!)
                 while read -r -t 75 action <&3; do
                     case $action in
                         previous|play-pause|next) mpris "$action" ;;
+                        volume-up|volume-down) change_volume "$action" ;;
+                        mute) pactl set-sink-mute "$node" toggle 2>/dev/null || echo "esp32dif-sink: remote mute: no $node sink" ;;
                     esac
                 done
-                stop_track
+                stop_feeds
             elif [ "$reply" = denied ] && [ -z "$refused" ]; then
                 refused=1
                 echo "esp32dif-sink: $host rejected the password for remote buttons, set SPDIF_PASSWORD"
@@ -128,7 +179,7 @@ context.modules = [
             audio.position = [ FL FR ]
             stream.props = {
                 media.class = "Audio/Sink"
-                node.name = "esp32dif-rtp"
+                node.name = "$node"
                 node.group = "pipewire.dummy"
                 node.description = "S/PDIF over Wi-Fi ($host)"
                 sess.sap.announce = true

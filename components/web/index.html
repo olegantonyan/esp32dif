@@ -37,6 +37,9 @@ button:disabled{opacity:.5;cursor:default}
 #nets span{color:var(--muted)}
 progress{width:100%;margin-top:.6rem}
 .dim{color:var(--muted)}
+#player{align-items:center}
+#player button{min-width:2.8rem}
+#vol{margin:.7rem 0 0 .3rem;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -46,6 +49,20 @@ progress{width:100%;margin-top:.6rem}
 <section>
 <h2>Status</h2>
 <table id="status"></table>
+</section>
+
+<section>
+<h2>Player</h2>
+<div class="row" id="player">
+<button data-action="previous" title="Previous">&#x23EE;</button>
+<button data-action="play-pause" title="Play/pause">&#x23EF;</button>
+<button data-action="next" title="Next">&#x23ED;</button>
+<button class="plain" data-action="volume-down" title="Volume down">&minus;</button>
+<button class="plain" data-action="volume-up" title="Volume up">+</button>
+<button class="plain" data-action="mute" title="Mute">mute</button>
+<span id="vol"></span>
+</div>
+<div class="msg" id="pmsg"></div>
 </section>
 
 <details>
@@ -126,6 +143,7 @@ function render(s) {
   $('wsum').textContent = w.saved ? `saved: ${w.saved}, ${savedBand}` : 'no saved network';
   $('dsum').textContent = s.hostname;
   $('fsum').textContent = s.version;
+  $('vol').textContent = !p || p.volume === undefined ? '' : p.muted ? `muted (${p.volume}%)` : `${p.volume}%`;
   const khz = sp.rate / 1000;
   const src = sp.tone_hz ? `test tone ${sp.tone_hz} Hz`
     : r.state === 'playing' ? `RTP from ${r.from}, ${r.rate / 1000} kHz ${r.bits}-bit, buffer ${r.buffer_ms} ms`
@@ -133,7 +151,7 @@ function render(s) {
   rows([
     ['S/PDIF', sp.ready ? `${khz} kHz 24-bit` : 'off (no WM8804)'],
     ['Source', src],
-    p && ['Player', [p.status, p.name, p.id && `(${p.id})`].filter(Boolean).join(' ')],
+    p && ['Player', [p.status, p.name, p.id && `(${p.id})`, p.muted ? 'muted' : p.volume !== undefined && `vol ${p.volume}%`].filter(Boolean).join(' ')],
     p && (p.artist || p.title) && ['Track', [p.artist, p.title].filter(Boolean).join(' - ')],
     r.active && ['RTP loss', `${r.lost} lost of ${r.packets + r.lost} packets`],
     ['Senders', (r.senders.length ? r.senders.join(', ') : 'none authenticated') + (r.denied ? `; ${r.denied} packets denied` : '')],
@@ -155,6 +173,18 @@ async function refresh() {
   } catch (e) {
     $('conn').textContent = 'offline';
   }
+}
+
+for (const b of document.querySelectorAll('#player button')) {
+  b.onclick = async () => {
+    try {
+      await call('/api/player', new URLSearchParams({ action: b.dataset.action }));
+      msg('pmsg', '');
+      setTimeout(refresh, 400);
+    } catch (e) {
+      msg('pmsg', e.message, false);
+    }
+  };
 }
 
 $('scan').onclick = async () => {
