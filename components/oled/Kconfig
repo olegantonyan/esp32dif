@@ -52,7 +52,7 @@ menu "Board OLED"
 
     config APP_OLED_FRONT_FLIP
         bool "Rotate front display 180 degrees"
-        default y
+        default n
 
     config APP_OLED_IDLE_S
         int "Turn off after idle seconds"

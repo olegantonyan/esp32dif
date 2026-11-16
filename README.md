@@ -172,7 +172,7 @@ Two SSD1306 I2C modules on the same bus: **back** 0.91" 128x32 at 0x3C (status),
 
 - Use 3V3, not 5V. With 5V the module's pull-ups would pull SDA/SCL to 5 V.
 - 0.91" 128x32 modules are fixed at 0x3C (the panel has no address pin). Most 0.96" 128x64 modules have an address resistor on the back; move it to get 0x3D. `i2cscan` shows which addresses answer.
-- Addresses, heights and 180° rotation of both displays can be changed in menuconfig (Board OLED). The front is rotated by default.
+- Addresses, heights and 180° rotation of both displays can be changed in menuconfig (Board OLED).
 - The board also works with one display or none.
 
 ### Digi+ (WM8804 S/PDIF HAT)
